@@ -23,7 +23,7 @@ class ArbiterEventHandler(BaseEventHandler):
 
     def queue_event_callback(self, channel, method, properties, body):  # pylint: disable=R0912,R0915
         _ = properties, self, channel, method
-        logging.info("[%s] [TaskEvent] Got event", self.ident)
+        logging.debug(f"[{self.ident}] [TaskEvent] Got event {body}")
         event = json.loads(body)
         try:
             event_type = event.get("type")
@@ -43,7 +43,7 @@ class ArbiterEventHandler(BaseEventHandler):
                 if worker_type not in self.state["state"]:
                     self.state["state"][worker_type] = {}
                 for key, value in event.items():
-                    if key not in self.state["state"]:
+                    if key not in self.state["state"][worker_type]:
                         self.state["state"][worker_type][key] = 0
                     self.state["state"][worker_type][key] += value
         except:

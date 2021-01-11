@@ -56,4 +56,4 @@ def tasks_pipe():
 
 
 if __name__ == "__main__":
-    tasks_pipe()
+    simple_task_in_task()

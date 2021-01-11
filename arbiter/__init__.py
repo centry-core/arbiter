@@ -63,7 +63,6 @@ class Base:
                 if task not in tasks_done and self.state[task]["state"] == 'done':
                     tasks_done.append(task)
                     yield self.state[task]
-            sleep(1)
 
     def add_task(self, task, sync=False):
         generated_queue = False
@@ -73,6 +72,7 @@ class Base:
             self._get_connection().queue_declare(
                 queue=queue_id, durable=True
             )
+            task.callback_queue = queue_id
         tasks = []
         for _ in range(task.tasks_count):
             task_key = str(uuid4())
