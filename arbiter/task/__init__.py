@@ -9,7 +9,7 @@ from arbiter.event.process import ProcessEventHandler
 
 class ProcessWatcher:
     def __init__(self, process_id, host, port, user, password, vhost="carrier", all_queue="arbiterAll"):
-        self.config = Config(host, port, user, password, vhost, None, None, all_queue)
+        self.config = Config(host, port, user, password, vhost, None, all_queue)
         self.connection = self._get_connection()
 
         self.state = dict()

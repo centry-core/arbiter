@@ -28,13 +28,9 @@ class BaseEventHandler(threading.Thread):
             )
         )
         channel = connection.channel()
-        if self.settings.light:
+        if self.settings.queue:
             channel.queue_declare(
-                queue=self.settings.light, durable=True
-            )
-        if self.settings.heavy:
-            channel.queue_declare(
-                queue=self.settings.heavy, durable=True
+                queue=self.settings.queue, durable=True
             )
         channel.exchange_declare(
             exchange=self.settings.all,
@@ -61,6 +57,10 @@ class BaseEventHandler(threading.Thread):
                 continue
             except pika.exceptions.AMQPChannelError:
                 logging.info("AMQPChannelError")
+            except pika.exceptions.StreamLostError:
+                logging.info("Recovering from error")
+                time.sleep(5.0)
+                continue
             except pika.exceptions.AMQPConnectionError:
                 logging.info("Recovering from error")
                 time.sleep(5.0)

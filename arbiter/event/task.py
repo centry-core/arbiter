@@ -19,7 +19,7 @@ class TaskEventHandler(BaseEventHandler):
     def _connect_to_specific_queue(self, channel):
         channel.basic_qos(prefetch_count=1)
         channel.basic_consume(
-            queue=self.settings.__getattribute__(self.settings.worker_type),
+            queue=self.settings.queue,
             on_message_callback=self.queue_event_callback
         )
         logging.info("[%s] Waiting for task events", self.ident)
@@ -60,16 +60,23 @@ class TaskEventHandler(BaseEventHandler):
                     self.state.pop(event.get("task_key"))
 
             elif event_type == "callback":
-                minibitter = ProcessWatcher(event.get("task_key"), self.settings.host, self.settings.port,
+                callback_key = event.get("task_key")
+                minibitter = ProcessWatcher(callback_key, self.settings.host, self.settings.port,
                                             self.settings.user, self.settings.password)
                 state = minibitter.collect_state(event.get("tasks_array"))
-                if all(task in state.get("done", []) for task in event.get("tasks_array")):
+                if callback_key not in list(self.state["finished_tasks"].keys()):
+                    self.state["finished_tasks"][callback_key] = []
+                for finished_task in state.get("done", []):
+                    if finished_task not in self.state["finished_tasks"][callback_key]:
+                        self.state["finished_tasks"][callback_key].append(finished_task)
+                if all(task in self.state["finished_tasks"][callback_key] for task in event.get("tasks_array")):
+                    del self.state["finished_tasks"][callback_key]
                     event["type"] = "task"
                     minibitter.clear_state(event.get("tasks_array"))
                     event.pop("tasks_array")
-                    self.respond(channel, event, self.settings.__getattribute__(self.settings.worker_type))
+                    self.respond(channel, event, self.settings.queue)
                 else:
-                    self.respond(channel, event, self.settings.__getattribute__(self.settings.worker_type), 60000)
+                    self.respond(channel, event, self.settings.queue, 60000)
                 minibitter.close()
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
