@@ -28,12 +28,14 @@ class BaseEventHandler(threading.Thread):
             )
         )
         channel = connection.channel()
-        channel.queue_declare(
-            queue=self.settings.light, durable=True
-        )
-        channel.queue_declare(
-            queue=self.settings.heavy, durable=True
-        )
+        if self.settings.light:
+            channel.queue_declare(
+                queue=self.settings.light, durable=True
+            )
+        if self.settings.heavy:
+            channel.queue_declare(
+                queue=self.settings.heavy, durable=True
+            )
         channel.exchange_declare(
             exchange=self.settings.all,
             exchange_type="fanout", durable=True
@@ -54,12 +56,14 @@ class BaseEventHandler(threading.Thread):
                 logging.info("[%s] Waiting for task events", self.ident)
                 channel.start_consuming()
             except pika.exceptions.ConnectionClosedByBroker:
-                break
+                logging.info("Connection Closed by Broker")
+                time.sleep(5.0)
+                continue
             except pika.exceptions.AMQPChannelError:
-                break
+                logging.info("AMQPChannelError")
             except pika.exceptions.AMQPConnectionError:
                 logging.info("Recovering from error")
-                time.sleep(3.0)
+                time.sleep(5.0)
                 continue
         channel.stop_consuming()
 
@@ -70,13 +74,17 @@ class BaseEventHandler(threading.Thread):
         return self._stop_event.is_set()
 
     @staticmethod
-    def respond(channel, message, queue):
+    def respond(channel, message, queue, delay=0):
         logging.debug(message)
+        headers = {}
+        if delay and isinstance(delay, int):
+            headers = {"x-delay": delay}
         channel.basic_publish(
             exchange="", routing_key=queue,
             body=json.dumps(message).encode("utf-8"),
             properties=pika.BasicProperties(
-                delivery_mode=2
+                delivery_mode=2,
+                headers=headers,
             )
         )
 

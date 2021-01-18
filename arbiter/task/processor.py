@@ -4,8 +4,6 @@
 import logging
 import multiprocessing
 
-from arbiter.event.process import ProcessEventHandler
-
 multiprocessing.set_start_method('fork')
 
 
@@ -35,7 +33,7 @@ class TaskProcess(multiprocessing.Process):
                 self.result_queue.put(self._target(*self.task_args, **self.task_kwargs))
         except:  # pylint: disable=W0702
             self.logger.exception("Exception during running the task")
-        # Exit
-        self.logger.info("Task exiting")
-        for handler in logging.getLogger("").handlers:
-            handler.flush()
+        finally:
+            self.logger.info("Task exiting")
+            for handler in logging.getLogger("").handlers:
+                handler.flush()

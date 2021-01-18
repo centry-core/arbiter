@@ -24,7 +24,6 @@ class GlobalEventHandler(BaseEventHandler):
     def queue_event_callback(self, channel, method, properties, body):
         """ Process event """
         _ = properties, self, channel, method
-        logging.info("[GlobalEvent] Got event")
         try:
             event = json.loads(body)
             #
@@ -42,8 +41,20 @@ class GlobalEventHandler(BaseEventHandler):
                     logging.info("[GlobalEvent] Got data for subscription %s", subscription)
                     self.subscriptions[subscription] = event.get("data")
             elif event_type == "state":
-                self.respond(channel, {"active": self.state["active_workers"],  "total": self.state["total_workers"],
-                                       "available": self.state["total_workers"] - self.state["active_workers"],
-                                       "type": "state", "worker": self.state["type"]}, event["arbiter"])
+                message = {"active": self.state["active_workers"],  "total": self.state["total_workers"],
+                           "available": self.state["total_workers"] - self.state["active_workers"],
+                           "type": "state", "worker": self.state["type"]}
+                logging.debug(json.dumps(message, indent=2))
+                self.respond(channel, message, event["arbiter"])
+            elif event_type == "task_state":
+                response = {"type": "task_state"}
+                for each in event.get("tasks", []):
+                    if each in self.state:
+                        response[each] = self.state[each].is_alive()
+                self.respond(channel, response, event["arbiter"])
+            elif event_type == "clear_state":
+                for task in event.get("tasks", []):
+                    if task in self.state:
+                        self.state.pop(task)
         except:  # pylint: disable=W0702
             logging.exception("[GlobalEvent] Got exception")

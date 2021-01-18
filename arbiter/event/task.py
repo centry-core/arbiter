@@ -5,6 +5,8 @@ from uuid import uuid4
 from traceback import format_exc
 
 from arbiter.event.base import BaseEventHandler
+
+from arbiter.task import ProcessWatcher
 from arbiter.task.processor import TaskProcess
 
 
@@ -25,7 +27,6 @@ class TaskEventHandler(BaseEventHandler):
 
     def queue_event_callback(self, channel, method, properties, body):  # pylint: disable=R0912,R0915
         _ = properties, self, channel, method
-        logging.info("[%s] [TaskEvent] Got event", self.ident)
         event = json.loads(body)
         try:
             self.state["active_workers"] += 1
@@ -51,11 +52,25 @@ class TaskEventHandler(BaseEventHandler):
                 while worker.is_alive():
                     channel._connection.sleep(1.0)  # pylint: disable=W0212
                 result = self.result_queue.get()
-                self.state.pop(event.get("task_key"))
                 logging.info("[%s] [TaskEvent] Worker process stopped", self.ident)
                 if event.get("arbiter"):
                     self.respond(channel, {"type": "task_state_change", "task_key": event.get("task_key"),
                                            "result": result, "task_state": "done"}, event.get("arbiter"))
+                if not event.get("callback", False):
+                    self.state.pop(event.get("task_key"))
+
+            elif event_type == "callback":
+                minibitter = ProcessWatcher(event.get("task_key"), self.settings.host, self.settings.port,
+                                            self.settings.user, self.settings.password)
+                state = minibitter.collect_state(event.get("tasks_array"))
+                if all(task in state.get("done", []) for task in event.get("tasks_array")):
+                    event["type"] = "task"
+                    minibitter.clear_state(event.get("tasks_array"))
+                    event.pop("tasks_array")
+                    self.respond(channel, event, self.settings.__getattribute__(self.settings.worker_type))
+                else:
+                    self.respond(channel, event, self.settings.__getattribute__(self.settings.worker_type), 60000)
+                minibitter.close()
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
             if event.get("arbiter"):
