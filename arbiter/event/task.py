@@ -72,7 +72,7 @@ class TaskEventHandler(BaseEventHandler):
                     self.respond(channel, event, self.settings.queue)
                 else:
                     minibitter.close()
-                    self.respond(channel, event, self.settings.queue)
+                    self.respond(channel, event, self.settings.queue, 60)
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
             if event.get("arbiter"):

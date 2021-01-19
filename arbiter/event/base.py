@@ -83,15 +83,13 @@ class BaseEventHandler(threading.Thread):
     @staticmethod
     def respond(channel, message, queue, delay=0):
         logging.debug(message)
-        headers = {}
         if delay and isinstance(delay, int):
-            headers = {"x-delay": delay}
+            time.sleep(delay)
         channel.basic_publish(
             exchange="", routing_key=queue,
             body=json.dumps(message).encode("utf-8"),
             properties=pika.BasicProperties(
                 delivery_mode=2,
-                headers=headers,
             )
         )
 
