@@ -36,10 +36,11 @@ class ProcessEventHandler(BaseEventHandler):
             if event_type == "task_state":
                 event.pop("type")
                 for key, value in event.items():
-                    if not value:
+                    if not value and key not in self.state[self.process_id]["done"]:
                         self.state[self.process_id]["done"].append(key)
-                    else:
+                    elif value and key not in self.state[self.process_id]["running"]:
                         self.state[self.process_id]["running"].append(key)
                 logging.info(self.state)
         except:  # pylint: disable=W0702
             logging.exception("[ProcessEvent] Got exception")
+        channel.basic_ack(delivery_tag=method.delivery_tag)

@@ -12,10 +12,10 @@ channel = None
 
 
 class Base:
-    def __init__(self, host, port, user, password, vhost="carrier",
-                 light_queue="arbiterLight", heavy_queue="arbiterHeavy", all_queue="arbiterAll"):
-        self.config = Config(host, port, user, password, vhost, light_queue, heavy_queue, all_queue)
+    def __init__(self, host, port, user, password, vhost="carrier", queue=None, all_queue="arbiterAll", wait_time=2.0):
+        self.config = Config(host, port, user, password, vhost, queue, all_queue)
         self.state = dict()
+        self.wait_time = wait_time
 
     def _get_connection(self):
         global connection
@@ -34,16 +34,20 @@ class Base:
             )
         if not channel:
             channel = connection.channel()
-            channel.queue_declare(
-                queue=self.config.light, durable=True
-            )
-            channel.queue_declare(
-                queue=self.config.heavy, durable=True
-            )
+            if self.config.queue:
+                channel.queue_declare(
+                    queue=self.config.queue, durable=True
+                )
             channel.exchange_declare(
                 exchange=self.config.all,
                 exchange_type="fanout", durable=True
             )
+        try:
+            connection.process_data_events()
+        except:
+            connection = None
+            channel = None
+            return self._get_connection()
         return channel
 
     @staticmethod
@@ -93,7 +97,7 @@ class Base:
             logging.debug(f"Task body {task.to_json()}")
             message = task.to_json()
             message["task_key"] = task_key
-            self.send_message(message, queue=self.config.__getattribute__(task.worker_type))
+            self.send_message(message, queue=task.queue)
             yield task_key
         if generated_queue:
             handler = ArbiterEventHandler(self.config, {}, self.state, task.callback_queue)

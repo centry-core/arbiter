@@ -8,12 +8,14 @@ import logging
 class BaseEventHandler(threading.Thread):
     """ Basic representation of events handler"""
 
-    def __init__(self, settings, subscriptions, state):
+    def __init__(self, settings, subscriptions, state, wait_time=2.0):
         super().__init__(daemon=True)
         self.settings = settings
         self.state = state
         self.subscriptions = subscriptions
         self._stop_event = threading.Event()
+        self.started = False
+        self.wait_time = wait_time
 
     def _get_channel(self):
         connection = pika.BlockingConnection(
@@ -28,13 +30,9 @@ class BaseEventHandler(threading.Thread):
             )
         )
         channel = connection.channel()
-        if self.settings.light:
+        if self.settings.queue:
             channel.queue_declare(
-                queue=self.settings.light, durable=True
-            )
-        if self.settings.heavy:
-            channel.queue_declare(
-                queue=self.settings.heavy, durable=True
+                queue=self.settings.queue, durable=True
             )
         channel.exchange_declare(
             exchange=self.settings.all,
@@ -46,6 +44,10 @@ class BaseEventHandler(threading.Thread):
     def _connect_to_specific_queue(self, channel):
         raise NotImplemented
 
+    def wait_running(self):
+        while not self.started:
+            time.sleep(0.5)
+
     def run(self):
         """ Run handler thread """
         logging.info("Starting handler thread")
@@ -54,6 +56,7 @@ class BaseEventHandler(threading.Thread):
             try:
                 channel = self._get_channel()
                 logging.info("[%s] Waiting for task events", self.ident)
+                self.started = True
                 channel.start_consuming()
             except pika.exceptions.ConnectionClosedByBroker:
                 logging.info("Connection Closed by Broker")
@@ -61,6 +64,10 @@ class BaseEventHandler(threading.Thread):
                 continue
             except pika.exceptions.AMQPChannelError:
                 logging.info("AMQPChannelError")
+            except pika.exceptions.StreamLostError:
+                logging.info("Recovering from error")
+                time.sleep(5.0)
+                continue
             except pika.exceptions.AMQPConnectionError:
                 logging.info("Recovering from error")
                 time.sleep(5.0)
@@ -76,15 +83,13 @@ class BaseEventHandler(threading.Thread):
     @staticmethod
     def respond(channel, message, queue, delay=0):
         logging.debug(message)
-        headers = {}
         if delay and isinstance(delay, int):
-            headers = {"x-delay": delay}
+            time.sleep(delay)
         channel.basic_publish(
             exchange="", routing_key=queue,
             body=json.dumps(message).encode("utf-8"),
             properties=pika.BasicProperties(
                 delivery_mode=2,
-                headers=headers,
             )
         )
 

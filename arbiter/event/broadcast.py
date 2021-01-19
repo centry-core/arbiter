@@ -41,9 +41,10 @@ class GlobalEventHandler(BaseEventHandler):
                     logging.info("[GlobalEvent] Got data for subscription %s", subscription)
                     self.subscriptions[subscription] = event.get("data")
             elif event_type == "state":
-                message = {"active": self.state["active_workers"],  "total": self.state["total_workers"],
+                message = {"queue": self.state["queue"], "active": self.state["active_workers"],
+                           "total": self.state["total_workers"],
                            "available": self.state["total_workers"] - self.state["active_workers"],
-                           "type": "state", "worker": self.state["type"]}
+                           "type": "state"}
                 logging.debug(json.dumps(message, indent=2))
                 self.respond(channel, message, event["arbiter"])
             elif event_type == "task_state":
