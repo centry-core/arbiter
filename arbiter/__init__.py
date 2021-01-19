@@ -41,18 +41,16 @@ class Minion(Base):
             self.task_registry[name] = func
         return self.task_registry[name]
 
-    def run(self, queue, workers):
+    def run(self, workers):
         state = dict()
         subscriptions = dict()
-        self.config.queue = queue
         logging.info("Starting '%s' worker", self.config.queue)
         # Listen for task events
-        state["queue"] = queue
+        state["queue"] = self.config.queue
         state["total_workers"] = workers
         state["active_workers"] = 0
-        state["finished_tasks"] = {}
         for _ in range(workers):
-            TaskEventHandler(self.config, subscriptions, state, self.task_registry).start()
+            TaskEventHandler(self.config, subscriptions, state, self.task_registry, wait_time=self.wait_time).start()
         # Listen for global events
         global_handler = GlobalEventHandler(self.config, subscriptions, state)
         global_handler.start()
@@ -70,6 +68,7 @@ class Arbiter(Base):
             self.arbiter_id = str(uuid4())
             self.handler = ArbiterEventHandler(self.config, self.subscriptions, self.state, self.arbiter_id)
             self.handler.start()
+            self.handler.wait_running()
 
     def apply(self, task_name, queue="default", tasks_count=1, task_args=None, task_kwargs=None, sync=False):
         task = Task(name=task_name, queue=queue, tasks_count=tasks_count,
@@ -87,7 +86,7 @@ class Arbiter(Base):
             while True:
                 if task_key in self.state and self.state[task_key]["state"] == "done":
                     break
-                sleep(1)
+                sleep(self.wait_time)
 
     def kill_group(self, group_id):
         tasks = []
@@ -101,7 +100,7 @@ class Arbiter(Base):
             for task in tasks:
                 if task not in tasks_done and self.state[task]["state"] == 'done':
                     tasks_done.append(task)
-            sleep(1)
+            sleep(self.wait_time)
 
     def status(self, task_key):
         if task_key in self.state:
@@ -141,7 +140,7 @@ class Arbiter(Base):
         if "state" in self.state:
             del self.state["state"]
         self.send_message(message, exchange=self.config.all)
-        sleep(5)
+        sleep(self.wait_time)
         return self.state["state"]
 
     def squad(self, tasks, callback=None):
@@ -150,10 +149,9 @@ class Arbiter(Base):
         """
         workers_count = {}
         for each in tasks:
-            workers_count[each.queue] = 0
-        for each in tasks:
+            if each.queue not in list(workers_count.keys()):
+                workers_count[each.queue] = 0
             workers_count[each.queue] += each.tasks_count
-        sleep(5)
         stats = self.workers()
         logging.info(f"Workers: {stats}")
         logging.info(f"Tests to run {workers_count}")

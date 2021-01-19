@@ -12,9 +12,10 @@ channel = None
 
 
 class Base:
-    def __init__(self, host, port, user, password, vhost="carrier", queue=None, all_queue="arbiterAll"):
+    def __init__(self, host, port, user, password, vhost="carrier", queue=None, all_queue="arbiterAll", wait_time=2.0):
         self.config = Config(host, port, user, password, vhost, queue, all_queue)
         self.state = dict()
+        self.wait_time = wait_time
 
     def _get_connection(self):
         global connection

@@ -3,7 +3,6 @@ import logging
 from multiprocessing import Queue
 from uuid import uuid4
 from traceback import format_exc
-
 from arbiter.event.base import BaseEventHandler
 
 from arbiter.task import ProcessWatcher
@@ -11,8 +10,8 @@ from arbiter.task.processor import TaskProcess
 
 
 class TaskEventHandler(BaseEventHandler):
-    def __init__(self, settings, subscriptions, state, task_registry):
-        super().__init__(settings, subscriptions, state)
+    def __init__(self, settings, subscriptions, state, task_registry, wait_time=2.0):
+        super().__init__(settings, subscriptions, state, wait_time=wait_time)
         self.task_registry = task_registry
         self.result_queue = Queue()
 
@@ -61,23 +60,19 @@ class TaskEventHandler(BaseEventHandler):
 
             elif event_type == "callback":
                 callback_key = event.get("task_key")
-                minibitter = ProcessWatcher(callback_key, self.settings.host, self.settings.port,
-                                            self.settings.user, self.settings.password)
+                minibitter = ProcessWatcher(callback_key, self.settings.host, self.settings.port, self.settings.user,
+                                            self.settings.password, self.state, wait_time=self.wait_time)
                 state = minibitter.collect_state(event.get("tasks_array"))
-                if callback_key not in list(self.state["finished_tasks"].keys()):
-                    self.state["finished_tasks"][callback_key] = []
-                for finished_task in state.get("done", []):
-                    if finished_task not in self.state["finished_tasks"][callback_key]:
-                        self.state["finished_tasks"][callback_key].append(finished_task)
-                if all(task in self.state["finished_tasks"][callback_key] for task in event.get("tasks_array")):
-                    del self.state["finished_tasks"][callback_key]
+                if all(task in state.get("done", []) for task in event.get("tasks_array")):
+                    del self.state[callback_key]
                     event["type"] = "task"
                     minibitter.clear_state(event.get("tasks_array"))
+                    minibitter.close()
                     event.pop("tasks_array")
                     self.respond(channel, event, self.settings.queue)
                 else:
-                    self.respond(channel, event, self.settings.queue, 60000)
-                minibitter.close()
+                    minibitter.close()
+                    self.respond(channel, event, self.settings.queue)
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
             if event.get("arbiter"):

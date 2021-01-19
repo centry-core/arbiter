@@ -8,12 +8,14 @@ import logging
 class BaseEventHandler(threading.Thread):
     """ Basic representation of events handler"""
 
-    def __init__(self, settings, subscriptions, state):
+    def __init__(self, settings, subscriptions, state, wait_time=2.0):
         super().__init__(daemon=True)
         self.settings = settings
         self.state = state
         self.subscriptions = subscriptions
         self._stop_event = threading.Event()
+        self.started = False
+        self.wait_time = wait_time
 
     def _get_channel(self):
         connection = pika.BlockingConnection(
@@ -42,6 +44,10 @@ class BaseEventHandler(threading.Thread):
     def _connect_to_specific_queue(self, channel):
         raise NotImplemented
 
+    def wait_running(self):
+        while not self.started:
+            time.sleep(0.5)
+
     def run(self):
         """ Run handler thread """
         logging.info("Starting handler thread")
@@ -50,6 +56,7 @@ class BaseEventHandler(threading.Thread):
             try:
                 channel = self._get_channel()
                 logging.info("[%s] Waiting for task events", self.ident)
+                self.started = True
                 channel.start_consuming()
             except pika.exceptions.ConnectionClosedByBroker:
                 logging.info("Connection Closed by Broker")
