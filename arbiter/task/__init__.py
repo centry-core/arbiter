@@ -8,12 +8,12 @@ from arbiter.event.process import ProcessEventHandler
 
 
 class ProcessWatcher:
-    def __init__(self, process_id, host, port, user, password, state, vhost="carrier", all_queue="arbiterAll",
+    def __init__(self, process_id, host, port, user, password, vhost="carrier", all_queue="arbiterAll",
                  wait_time=2.0):
         self.config = Config(host, port, user, password, vhost, None, all_queue)
         self.connection = self._get_connection()
         self.process_id = process_id
-        self.state = state
+        self.state = {}
         self.subscriptions = dict()
         self.arbiter_id = str(uuid4())
         self.handler = ProcessEventHandler(self.config, self.subscriptions, self.state, self.process_id)
