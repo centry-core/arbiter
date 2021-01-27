@@ -2,7 +2,7 @@ from arbiter import Minion
 import logging
 from time import sleep
 
-app = Minion(host="localhost", port=5672, user='user', password='password')
+app = Minion(host="localhost", port=5672, user='user', password='password', queue="rcp_queue")
 
 
 @app.task(name="add")
@@ -18,7 +18,7 @@ def add(x, y):
 
 @app.task(name="simple_add")
 def adds(x, y):
-    logging.info("Running task 'add_small'")
+    logging.info(f"Running task 'add_small' with params {x}, {y}")
     return x + y
 
 
@@ -28,14 +28,6 @@ def addp(x, y, upstream=0):
     return x + y + upstream
 
 
-#
-#  Complicated task with
-#  Running container and passing params to container
-#
-@app.task(name="lambda")
-def function_as_a_service(runtime="", artifact="/", galloper='', auth_token='', lambda_env=[], entrypoint=''):
-    pass
-
-
 if __name__ == "__main__":
-    app.run(worker_type="heavy", workers=3)
+    # app.run(worker_type="heavy", workers=3)
+    app.rpc(workers=3, blocking=True)

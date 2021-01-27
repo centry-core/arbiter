@@ -17,7 +17,7 @@ class BaseEventHandler(threading.Thread):
         self.started = False
         self.wait_time = wait_time
 
-    def _get_channel(self):
+    def _get_connection(self):
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=self.settings.host,
@@ -29,6 +29,11 @@ class BaseEventHandler(threading.Thread):
                 )
             )
         )
+        return connection
+
+    def _get_channel(self, connection=None):
+        if not connection:
+            connection = self._get_connection()
         channel = connection.channel()
         if self.settings.queue:
             channel.queue_declare(
@@ -51,6 +56,7 @@ class BaseEventHandler(threading.Thread):
     def run(self):
         """ Run handler thread """
         logging.info("Starting handler thread")
+        channel = None
         while not self.stopped():
             logging.info("Starting handler consuming")
             try:
