@@ -37,11 +37,11 @@ class RPCEventHandler(BaseEventHandler):
             result = self.task_registry[event.get("task_name")](*event.get("args", []), **event.get("kwargs", {}))
             logging.info("[%s] [TaskEvent] Worker process stopped", self.ident)
             self.rpc_respond(channel, properties.reply_to,
-                             {"type": "result", "message": result},
+                             {"type": "result", "message": result, "task_key": event.get("task_key")},
                              properties.correlation_id)
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
             self.rpc_respond(channel, properties.reply_to,
-                             {"type": "exception", "result": format_exc()},
+                             {"type": "exception", "message": format_exc(), "task_key": event.get("task_key")},
                              properties.correlation_id)
         channel.basic_ack(delivery_tag=method.delivery_tag)

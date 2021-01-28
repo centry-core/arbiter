@@ -50,5 +50,8 @@ class RPCClintEventHandler(BaseEventHandler):
             body=dumps(message).encode("utf-8"))
         while self.response is None:
             client.connection.process_data_events()
-        return loads(self.response)
+        resp = loads(self.response)
+        if resp.get("type") == "exception":
+            raise ChildProcessError(resp["message"])
+        return resp.get("message")
 

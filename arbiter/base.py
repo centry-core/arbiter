@@ -59,11 +59,12 @@ class Base:
         connection = None
         channel = None
 
-    def send_message(self, msg, queue="", exchange=""):
+    def send_message(self, msg, reply_to="", queue="", exchange=""):
         self._get_connection().basic_publish(
             exchange=exchange, routing_key=queue,
             body=dumps(msg).encode("utf-8"),
             properties=pika.BasicProperties(
+                reply_to=reply_to,
                 delivery_mode=2
             )
         )
@@ -97,7 +98,7 @@ class Base:
             logging.debug(f"Task body {task.to_json()}")
             message = task.to_json()
             message["task_key"] = task_key
-            self.send_message(message, queue=task.queue)
+            self.send_message(message, reply_to=task.callback_queue, queue=task.queue)
             yield task_key
         if generated_queue:
             handler = ArbiterEventHandler(self.config, {}, self.state, task.callback_queue)

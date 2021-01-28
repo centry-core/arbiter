@@ -20,9 +20,9 @@ class Minion(Base):
         self.task_registry = {}
         self.task_handlers = []
 
-    def apply(self, task_name, queue="default", tasks_count=1, task_args=None, task_kwargs=None, sync=True):
-        task = Task(task_name, queue=queue, tasks_count=tasks_count,
-                    task_args=task_args, task_kwargs=task_kwargs)
+    def apply(self, task_name, queue=None, tasks_count=1, task_args=None, task_kwargs=None, sync=True):
+        task = Task(task_name, queue=queue if queue else self.config.queue,
+                    tasks_count=tasks_count, task_args=task_args, task_kwargs=task_kwargs)
         for message in self.add_task(task, sync=sync):
             yield message
 
@@ -45,6 +45,7 @@ class Minion(Base):
         return self.task_registry[name]
 
     def rpc(self, workers, blocking=False):
+        self.rpc = True
         state = dict()
         subscriptions = dict()
         logging.info("Starting '%s' RPC", self.config.queue)
@@ -53,9 +54,9 @@ class Minion(Base):
             self.task_handlers.append(RPCEventHandler(self.config, subscriptions, state,
                                                       self.task_registry, wait_time=self.wait_time))
             self.task_handlers[-1].start()
+            self.task_handlers[-1].wait_running()
         if blocking:
             for prcsrs in self.task_handlers:
-                prcsrs.wait_running()
                 prcsrs.join()
 
     def run(self, workers):
