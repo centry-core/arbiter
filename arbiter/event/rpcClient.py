@@ -1,5 +1,5 @@
 import pika
-
+from time import sleep
 from uuid import uuid4
 from json import loads, dumps
 import logging
@@ -13,6 +13,7 @@ class RPCClintEventHandler(BaseEventHandler):
         self.callback_queue = None
         self.correlation_id = None
         self.response = None
+        self.client = self._get_channel()
 
     def _connect_to_specific_queue(self, channel):
         result = channel.queue_declare(queue='', exclusive=True)
@@ -39,17 +40,24 @@ class RPCClintEventHandler(BaseEventHandler):
             "kwargs": kwargs
         }
         logging.info(message)
-        client = self._get_channel()
-        client.basic_publish(
-            exchange='',
-            routing_key=tasks_module,
-            properties=pika.BasicProperties(
-                reply_to=self.callback_queue,
-                correlation_id=self.correlation_id,
-            ),
-            body=dumps(message).encode("utf-8"))
+        try:
+            self.client.basic_publish(
+                exchange='',
+                routing_key=tasks_module,
+                properties=pika.BasicProperties(
+                    reply_to=self.callback_queue,
+                    correlation_id=self.correlation_id,
+                ),
+                body=dumps(message).encode("utf-8"))
+        except (pika.exceptions.ConnectionClosedByBroker,
+                pika.exceptions.AMQPChannelError,
+                pika.exceptions.AMQPConnectionError,
+                pika.exceptions.StreamLostError):
+            sleep(0.1)
+            self.client = self._get_channel()
+            return self.call(tasks_module, task, args, kwargs)
         while self.response is None:
-            client.connection.process_data_events()
+            self.client.connection.process_data_events()
         resp = loads(self.response)
         if resp.get("type") == "exception":
             raise ChildProcessError(resp["message"])
