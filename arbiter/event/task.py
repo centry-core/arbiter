@@ -1,19 +1,19 @@
 import json
 import logging
-from multiprocessing import Queue
+from multiprocessing import Pool
 from uuid import uuid4
 from traceback import format_exc
 from arbiter.event.base import BaseEventHandler
 
 from arbiter.task import ProcessWatcher
-from arbiter.task.processor import TaskProcess
 
 
 class TaskEventHandler(BaseEventHandler):
     def __init__(self, settings, subscriptions, state, task_registry, wait_time=2.0):
         super().__init__(settings, subscriptions, state, wait_time=wait_time)
         self.task_registry = task_registry
-        self.result_queue = Queue()
+        # self.result_queue = Queue()
+        self.pool = Pool(1)
 
     def _connect_to_specific_queue(self, channel):
         channel.basic_qos(prefetch_count=1)
@@ -42,15 +42,13 @@ class TaskEventHandler(BaseEventHandler):
                 logging.info("[%s] [TaskEvent] Starting worker process", self.ident)
                 if event.get("task_name") not in self.task_registry:
                     raise ModuleNotFoundError("Task is not a part of this worker")
-                worker = TaskProcess(
-                    self.settings, self.subscriptions, self.task_registry[event.get("task_name")],
-                    event.get("task_name"), event.get("task_key"), self.result_queue, event.get("args", []),
-                    event.get("kwargs", {}))
+                worker = self.pool.apply_async(self.task_registry[event.get("task_name")],
+                                               event.get("args", []),
+                                               event.get("kwargs", {}))
                 self.state[event.get("task_key")] = worker
-                worker.start()
-                while worker.is_alive():
+                while worker.ready():
                     channel._connection.sleep(1.0)  # pylint: disable=W0212
-                result = self.result_queue.get()
+                result = worker.get()
                 logging.info("[%s] [TaskEvent] Worker process stopped", self.ident)
                 if event.get("arbiter"):
                     self.respond(channel, {"type": "task_state_change", "task_key": event.get("task_key"),

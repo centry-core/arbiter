@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # coding=utf-8
+""" DEPRECATED """
 """ Task process """
 import logging
 import multiprocessing
