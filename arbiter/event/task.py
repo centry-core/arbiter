@@ -9,11 +9,10 @@ from arbiter.task import ProcessWatcher
 
 
 class TaskEventHandler(BaseEventHandler):
-    def __init__(self, settings, subscriptions, state, task_registry, wait_time=2.0):
+    def __init__(self, settings, subscriptions, state, task_registry, wait_time=2.0, pool_size=1):
         super().__init__(settings, subscriptions, state, wait_time=wait_time)
         self.task_registry = task_registry
-        # self.result_queue = Queue()
-        self.pool = Pool(1)
+        self.pool = Pool(pool_size)
 
     def _connect_to_specific_queue(self, channel):
         channel.basic_qos(prefetch_count=1)
