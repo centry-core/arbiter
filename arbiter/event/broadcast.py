@@ -32,7 +32,7 @@ class GlobalEventHandler(BaseEventHandler):
             #
             if event_type in ["stop_task", "purge_task"]:
                 task_key = event.get("task_key")
-                if task_key in self.state and self.state[task_key].ready():
+                if task_key in self.state and not self.state[task_key].ready():
                     logging.info("[GlobalEvent] Terminating task %s", task_key)
                     self.state[task_key].terminate()
             elif event_type == "subscription_notification":
@@ -51,7 +51,7 @@ class GlobalEventHandler(BaseEventHandler):
                 response = {"type": "task_state"}
                 for each in event.get("tasks", []):
                     if each in self.state:
-                        response[each] = self.state[each].ready()
+                        response[each] = not self.state[each].ready()
                 self.respond(channel, response, event["arbiter"])
             elif event_type == "clear_state":
                 for task in event.get("tasks", []):

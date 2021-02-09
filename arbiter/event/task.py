@@ -45,7 +45,7 @@ class TaskEventHandler(BaseEventHandler):
                                                event.get("args", []),
                                                event.get("kwargs", {}))
                 self.state[event.get("task_key")] = worker
-                while worker.ready():
+                while not worker.ready():
                     channel._connection.sleep(1.0)  # pylint: disable=W0212
                 result = worker.get()
                 logging.info("[%s] [TaskEvent] Worker process stopped", self.ident)
