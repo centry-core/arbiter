@@ -12,6 +12,7 @@ from arbiter.task import ProcessWatcher
 class TaskEventHandler(BaseEventHandler):
     def __init__(self, settings, subscriptions, state, task_registry, wait_time=2.0, pool_size=1):
         super().__init__(settings, subscriptions, state, wait_time=wait_time)
+        self.pool_size = pool_size
         self.task_registry = task_registry
         self.pool = mp.Pool(pool_size)
 
@@ -45,14 +46,25 @@ class TaskEventHandler(BaseEventHandler):
                 worker = self.pool.apply_async(self.task_registry[event.get("task_name")],
                                                event.get("args", []),
                                                event.get("kwargs", {}))
-                self.state[event.get("task_key")] = worker
+                self.state[event.get("task_key")] = {
+                    "process": worker,
+                    "status": "running"
+                }
                 while not worker.ready():
+                    if self.state[event.get('task_key')]["status"] == "canceled":
+                        self.pool.close()
+                        self.pool.terminate()
+                        self.pool.join()
+                        self.pool = mp.Pool(self.pool_size)
+                        break
                     channel._connection.sleep(1.0)  # pylint: disable=W0212
-                result = worker.get()
+
+                result = worker.get() if self.state[event.get('task_key')]["status"] != "canceled" else "canceled"
                 logging.info("[%s] [TaskEvent] Worker process stopped", self.ident)
                 if event.get("arbiter"):
                     self.respond(channel, {"type": "task_state_change", "task_key": event.get("task_key"),
                                            "result": result, "task_state": "done"}, event.get("arbiter"))
+                self.state[event.get('task_key')]["status"] = "done"
                 if not event.get("callback", False):
                     self.state.pop(event.get("task_key"))
 
