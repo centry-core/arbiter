@@ -13,6 +13,9 @@ from arbiter.event.rpcServer import RPCEventHandler
 from arbiter.event.rpcClient import RPCClintEventHandler
 from arbiter.config import Config
 
+from arbiter.eventnode import EventNode, MockEventNode
+from arbiter.rpcnode import RpcNode
+
 
 class Minion(Base):
     def __init__(self, host, port, user, password, vhost="carrier", queue="default", all_queue="arbiterAll"):
