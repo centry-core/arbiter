@@ -50,10 +50,8 @@ class GlobalEventHandler(BaseEventHandler):
             elif event_type == "task_state":
                 response = {"type": "task_state"}
                 for each in event.get("tasks", []):
-                    if each in self.state and self.state[each]["status"] != "done":
-                        response[each] = not self.state[each]["process"].ready()
-                    else:
-                        response[each] = False
+                    if each in self.state:
+                        response[each] = True if self.state[each]["status"] != "done" else False
                 self.respond(channel, response, event["arbiter"])
             elif event_type == "clear_state":
                 for task in event.get("tasks", []):
