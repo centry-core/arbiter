@@ -7,7 +7,9 @@ arbiter_host = "localhost"
 def simple_task_in_task():
     arbiter = Arbiter(host=arbiter_host, port=5672, user='user', password='password')
     print(arbiter.workers())
-    task_keys = arbiter.apply("add", task_args=[1, 2])
+    task_keys = []
+    for _ in range(20):
+        task_keys.append(arbiter.apply("simple_add", task_args=[1, 2])[0])
     for task_key in task_keys:
         print(arbiter.status(task_key))
     for message in arbiter.wait_for_tasks(task_keys):

@@ -18,6 +18,8 @@ def add(x, y):
 
 @app.task(name="simple_add")
 def adds(x, y):
+    from time import sleep
+    sleep(10)
     logging.info(f"Running task 'add_small' with params {x}, {y}")
     return x + y
 
@@ -29,5 +31,5 @@ def addp(x, y, upstream=0):
 
 
 if __name__ == "__main__":
-    app.run(workers=3)
-    # app.rpc(workers=3, blocking=True)
+    app.run(workers=10)
+    # app.rpc(workers=10, blocking=True)
