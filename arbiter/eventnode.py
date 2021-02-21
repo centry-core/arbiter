@@ -27,8 +27,6 @@
     Listening and running threads are synced using local Queue
 
     Event payloads are serialized, gziped and signed before sending to queue
-
-    Will add SSL support in near future
 """
 
 import threading
@@ -50,9 +48,13 @@ class EventNode:  # pylint: disable=R0902
     def __init__(
             self, host, port, user, password, vhost="carrier", event_queue="events",
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
+            ssl_context=None, ssl_server_hostname=None,
     ):  # pylint: disable=R0913
         self.queue_config = Config(host, port, user, password, vhost, event_queue, all_queue=None)
         self.event_callbacks = dict()  # event_name -> [callbacks]
+        #
+        self.ssl_context = ssl_context
+        self.ssl_server_hostname = ssl_server_hostname
         #
         self.hmac_key = hmac_key
         self.hmac_digest = hmac_digest
@@ -212,6 +214,11 @@ class EventNode:  # pylint: disable=R0902
     def _get_connection(self):
         while self.running:
             try:
+                #
+                pika_ssl_options = None
+                if self.ssl_context is not None:
+                    pika_ssl_options = pika.SSLOptions(self.ssl_context, self.ssl_server_hostname)
+                #
                 connection = pika.BlockingConnection(
                     pika.ConnectionParameters(
                         host=self.queue_config.host,
@@ -220,7 +227,8 @@ class EventNode:  # pylint: disable=R0902
                         credentials=pika.PlainCredentials(
                             self.queue_config.user,
                             self.queue_config.password
-                        )
+                        ),
+                        ssl_options=pika_ssl_options,
                     )
                 )
                 connection.process_data_events()
