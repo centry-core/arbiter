@@ -87,7 +87,7 @@ class TaskEventHandler(BaseEventHandler):
             elif event_type == "callback":
                 callback_key = event.get("task_key")
                 minibitter = ProcessWatcher(callback_key, self.settings.host, self.settings.port, self.settings.user,
-                                            self.settings.password, wait_time=self.wait_time)
+                                            self.settings.password, vhost=self.settings.vhost, wait_time=self.wait_time)
                 state = minibitter.collect_state(event.get("tasks_array"))
                 if all(task in state.get("done", []) for task in event.get("tasks_array")):
                     event["type"] = "task"
