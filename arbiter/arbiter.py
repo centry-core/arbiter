@@ -147,6 +147,8 @@ class Arbiter(Base):
         for each in tasks:
             if each.task_type == "finalize":
                 continue
+            if finalizer:
+                each.callback = True
             for task in self.add_task(each):
                 self.state["groups"][group_id].append(task)
         if callback:
