@@ -18,6 +18,7 @@ import logging
 import multiprocessing
 from uuid import uuid4
 from traceback import format_exc
+from time import time
 
 from ..event.base import BaseEventHandler
 from ..tasks import ProcessWatcher
@@ -89,7 +90,33 @@ class TaskEventHandler(BaseEventHandler):
                 minibitter = ProcessWatcher(callback_key, self.settings.host, self.settings.port, self.settings.user,
                                             self.settings.password, vhost=self.settings.vhost, wait_time=self.wait_time)
                 state = minibitter.collect_state(event.get("tasks_array"))
-                if all(task in state.get("done", []) for task in event.get("tasks_array")):
+                if all(task in state.get("done", []) for task in event.get("tasks_array") if task != callback_key):
+                    if not event.get("callback", False):
+                        minibitter.clear_state(event.get("tasks_array"))
+                        event.pop("tasks_array")
+                    event["type"] = "task"
+                    minibitter.close()
+                    self.respond(channel, event, self.settings.queue)
+                else:
+                    logging.info("********************************************")
+                    logging.info("Callback: waiting till all tasks are done")
+                    logging.info("********************************************")
+                    minibitter.close()
+                    self.respond(channel, event, self.settings.queue, 60)
+            elif event_type == "finalize":
+                if event.get("timeout") != -1:
+                    timeout = True if int(time()) - int(event.get("start_time")) > int(event.get("timeout")) else False
+                else:
+                    timeout = False
+                finalizer_key = event.get("task_key")
+                minibitter = ProcessWatcher(finalizer_key, self.settings.host, self.settings.port, self.settings.user,
+                                            self.settings.password, vhost=self.settings.vhost, wait_time=self.wait_time)
+                state = minibitter.collect_state(event.get("tasks_array"))
+                if timeout:
+                    logging.info("********************************************")
+                    logging.info(f"Timeout: {event.get('timeout')} sec")
+                    logging.info("********************************************")
+                if all(task in state.get("done", []) for task in event.get("tasks_array")) or timeout:
                     event["type"] = "task"
                     minibitter.clear_state(event.get("tasks_array"))
                     minibitter.close()
@@ -97,7 +124,10 @@ class TaskEventHandler(BaseEventHandler):
                     self.respond(channel, event, self.settings.queue)
                 else:
                     minibitter.close()
-                    self.respond(channel, event, self.settings.queue, 60)
+                    logging.info("********************************************")
+                    logging.info("Finalizer: waiting till all tasks are done")
+                    logging.info("********************************************")
+                    self.respond(channel, event, self.settings.queue, 10)
         except:
             logging.exception("[%s] [TaskEvent] Got exception", self.ident)
             if event.get("arbiter"):

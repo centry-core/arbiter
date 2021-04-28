@@ -114,9 +114,10 @@ class Arbiter(Base):
         """
         workers_count = {}
         for each in tasks:
-            if each.queue not in list(workers_count.keys()):
-                workers_count[each.queue] = 0
-            workers_count[each.queue] += each.tasks_count
+            if each.task_type != "finalize":
+                if each.queue not in list(workers_count.keys()):
+                    workers_count[each.queue] = 0
+                workers_count[each.queue] += each.tasks_count
         stats = self.workers()
         logging.info(f"Workers: {stats}")
         logging.info(f"Tests to run {workers_count}")
@@ -132,7 +133,11 @@ class Arbiter(Base):
         group_id = str(uuid4())
         self.state["groups"][group_id] = []
         tasks_array = []
+        finalizer = None
         for each in tasks:
+            if each.task_type == "finalize":
+                finalizer = each
+                continue
             task_id = str(uuid4())
             tasks_array.append(task_id)
             each.task_key = task_id
@@ -140,6 +145,8 @@ class Arbiter(Base):
             if callback:
                 each.callback = True
         for each in tasks:
+            if each.task_type == "finalize":
+                continue
             for task in self.add_task(each):
                 self.state["groups"][group_id].append(task)
         if callback:
@@ -147,7 +154,16 @@ class Arbiter(Base):
             callback.task_key = group_id
             callback.callback_queue = self.arbiter_id
             callback.task_type = "callback"
+            if finalizer:
+                callback.callback = True
+                tasks_array.append(callback.task_key)
             for task in self.add_task(callback):
+                self.state["groups"][group_id].append(task)
+        if finalizer:
+            finalizer.tasks_array = tasks_array
+            finalizer.task_key = group_id
+            finalizer.callback_queue = self.arbiter_id
+            for task in self.add_task(finalizer):
                 self.state["groups"][group_id].append(task)
         return group_id
 

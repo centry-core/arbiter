@@ -51,9 +51,9 @@ class ProcessEventHandler(BaseEventHandler):
             if event_type == "task_state":
                 event.pop("type")
                 for key, value in event.items():
-                    if not value and key not in self.state[self.process_id]["done"]:
+                    if not value and self.process_id in self.state and key not in self.state[self.process_id]["done"]:
                         self.state[self.process_id]["done"].append(key)
-                    elif value and key not in self.state[self.process_id]["running"]:
+                    elif value and self.process_id in self.state and key not in self.state[self.process_id]["running"]:
                         self.state[self.process_id]["running"].append(key)
                 logging.info(self.state)
         except:  # pylint: disable=W0702
