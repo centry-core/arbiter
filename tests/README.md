@@ -31,3 +31,12 @@ in the logs of running minion.py you need to see a record that task was executed
 ## Running tests
 
 to run tests you need to execution `python -q tests/`
+
+## Test coverage
+
+to check test coverage you need to run 
+```
+coverage run --source=arbiter -m pytest -q tests/
+coverage report -m
+coverage html
+```

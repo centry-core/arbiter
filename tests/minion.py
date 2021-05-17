@@ -32,6 +32,12 @@ def addp(x, y, upstream=0):
     return x + y + upstream
 
 
+@app.task(name="long_running")
+def long_task():
+    sleep(180)
+    return "Long Task"
+
+
 def run(rpc):
     if rpc:
         app.rpc(workers=1, blocking=True)
@@ -52,4 +58,4 @@ def stop_minion(p: Process):
 
 
 if __name__ == "__main__":
-    run(True)
+    run(False)

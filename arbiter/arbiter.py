@@ -153,7 +153,7 @@ class Arbiter(Base):
                 self.state["groups"][group_id].append(task)
         if callback:
             callback.tasks_array = tasks_array
-            callback.task_key = group_id
+            callback.task_key = str(uuid4())
             callback.callback_queue = self.arbiter_id
             callback.task_type = "callback"
             if finalizer:
@@ -163,7 +163,7 @@ class Arbiter(Base):
                 self.state["groups"][group_id].append(task)
         if finalizer:
             finalizer.tasks_array = tasks_array
-            finalizer.task_key = group_id
+            finalizer.task_key = str(uuid4())
             finalizer.callback_queue = self.arbiter_id
             for task in self.add_task(finalizer):
                 self.state["groups"][group_id].append(task)
