@@ -19,14 +19,6 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    container:
-      image: rabbitmq:3-management
-      env:
-        RABBITMQ_DEFAULT_USER: user
-        RABBITMQ_DEFAULT_PASS: password
-        RABBITMQ_DEFAULT_VHOST: carrier
-      ports:
-        - 5672:5672
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -35,11 +27,19 @@ jobs:
         with:
           python-version: '3.8.5' 
           architecture: 'x64'
+      - uses: docker-practice/actions-setup-docker@master
       - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+      - name: Running tests
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Run unit tests
-        run: coverage run --source=arbiter -m pytest --verbosity=1 tests/
+          set -x
+          docker run -d --rm --hostname arbiter-rabbit --name arbiter-rabbit \
+              -p 5672:5672 -e RABBITMQ_DEFAULT_USER=user \
+              -e RABBITMQ_DEFAULT_PASS=password \
+              -e RABBITMQ_DEFAULT_VHOST=carrier \
+              rabbitmq:3-management
+          coverage run --source=arbiter -m pytest --verbosity=1 tests/
       - name: Publish report
         run: coverage report -m
