@@ -18,6 +18,7 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     container:
       image: rabbitmq:3-management
       env:
@@ -39,6 +40,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run unit tests
-        run: coverage run --source=arbiter -m pytest -q tests/ 
+        run: coverage run --source=arbiter -m pytest --verbosity=1 tests/
       - name: Publish report
         run: coverage report -m
