@@ -70,6 +70,7 @@ class RPCClintEventHandler(BaseEventHandler):
                 pika.exceptions.StreamLostError):
             sleep(0.1)
             self.client = self._get_channel()
+            logging.error("Reconnecting ... ")
             return self.call(tasks_module, task, args, kwargs)
         while self.response is None:
             self.client.connection.process_data_events()

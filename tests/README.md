@@ -13,7 +13,7 @@ Launch minion app with `python minion.py`
 
 Access rabbit management console through `http://localhost:15672`
 
-go to Queues and select `arbiterHeavy`
+go to Queues and select `default`
 
 click on `publish message` and post following message to body
 
@@ -27,3 +27,7 @@ click on `publish message` and post following message to body
 ```
 
 in the logs of running minion.py you need to see a record that task was executed and result published
+
+## Running tests
+
+to run tests you need to execution `python -q tests/`

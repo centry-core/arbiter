@@ -25,7 +25,7 @@ class RPCClient(Base):
         self.handler.start()
         self.handler.wait_running()
 
-    def call(self, tasks_module, task_name, *args, **kwargs):
+    def call(self, tasks_module, task_name, args=None, kwargs=None):
         task_args = args if args else []
         task_kwargs = kwargs if kwargs else {}
         return self.handler.call(tasks_module, task_name, task_args, task_kwargs)

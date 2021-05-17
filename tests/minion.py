@@ -1,4 +1,6 @@
 from arbiter import Minion
+from multiprocessing import Process
+from time import sleep
 import logging
 
 app = Minion(host="localhost", port=5672, user='user', password='password', queue="default")
@@ -30,6 +32,24 @@ def addp(x, y, upstream=0):
     return x + y + upstream
 
 
+def run(rpc):
+    if rpc:
+        app.rpc(workers=1, blocking=True)
+    else:
+        app.run(workers=10)
+
+
+def start_minion(rpc: bool = False) -> Process:
+    p = Process(target=run, args=(rpc,))
+    p.start()
+    sleep(5)  # some time to start Minion
+    return p
+
+
+def stop_minion(p: Process):
+    p.terminate()
+    p.join()
+
+
 if __name__ == "__main__":
-    app.run(workers=10)
-    # app.rpc(workers=10, blocking=True)
+    run(True)
