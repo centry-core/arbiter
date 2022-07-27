@@ -64,9 +64,14 @@ class BaseEventHandler(threading.Thread):
     def _connect_to_specific_queue(self, channel):
         raise NotImplemented
 
-    def wait_running(self):
+    def wait_running(self, timeout):
+        attempts = 0
+        attempts_limit = timeout * 2
         while not self.started:
             time.sleep(0.5)
+            attempts += 1
+            if attempts == attempts_limit:
+                break
 
     def run(self):
         """ Run handler thread """

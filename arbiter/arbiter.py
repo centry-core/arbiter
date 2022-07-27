@@ -23,7 +23,7 @@ from .task import Task
 
 
 class Arbiter(Base):
-    def __init__(self, host, port, user, password, vhost="carrier", all_queue="arbiterAll", start_consumer=True):
+    def __init__(self, host, port, user, password, timeout=0, vhost="carrier", all_queue="arbiterAll", start_consumer=True):
         super().__init__(host, port, user, password, vhost, all_queue=all_queue)
         self.arbiter_id = None
         self.state = dict(groups=dict())
@@ -33,7 +33,7 @@ class Arbiter(Base):
             self.arbiter_id = str(uuid4())
             self.handler = ArbiterEventHandler(self.config, self.subscriptions, self.state, self.arbiter_id)
             self.handler.start()
-            self.handler.wait_running()
+            self.handler.wait_running(timeout=timeout)
 
     def apply(self, task_name, queue="default", tasks_count=1, task_args=None, task_kwargs=None, sync=False):
         task = Task(name=task_name, queue=queue, tasks_count=tasks_count,
