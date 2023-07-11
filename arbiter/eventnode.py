@@ -37,7 +37,7 @@ import gzip
 import hmac
 
 import pika  # pylint: disable=E0401
-import pika_pool  # pylint: disable=E0401
+# import pika_pool  # pylint: disable=E0401
 
 from arbiter import log
 from arbiter.config import Config
@@ -78,9 +78,9 @@ class EventNode:  # pylint: disable=R0902
         self.ready_event = threading.Event()
         self.started = False
         #
-        self.emit_pool = pika_pool.NullPool(
-            create=self._get_connection
-        )
+        # self.emit_pool = pika_pool.NullPool(
+        #     create=self._get_connection
+        # )
 
     def start(self):
         """ Start event node """
@@ -122,31 +122,33 @@ class EventNode:  # pylint: disable=R0902
 
     def emit(self, event_name, payload=None):
         """ Emit event with payload data """
-        with self.emit_pool.acquire() as connection:
-            channel = connection.channel
-            self._prepare_channel(channel)
-            #
-            event = {
-                "name": event_name,
-                "payload": payload,
-            }
-            body = gzip.compress(pickle.dumps(
-                event, protocol=pickle.HIGHEST_PROTOCOL
-            ))
-            if self.hmac_key is not None:
-                digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
-                body = body + digest
-            #
-            channel.basic_publish(
-                exchange=self.queue_config.queue,
-                routing_key="",
-                body=body,
-                properties=pika.BasicProperties(
-                    delivery_mode=2
-                )
+        # with self.emit_pool.acquire() as connection:
+        #     channel = connection.channel
+        #     self._prepare_channel(channel)
+        connection = self._get_connection()
+        channel = self._get_channel(connection)
+        #
+        event = {
+            "name": event_name,
+            "payload": payload,
+        }
+        body = gzip.compress(pickle.dumps(
+            event, protocol=pickle.HIGHEST_PROTOCOL
+        ))
+        if self.hmac_key is not None:
+            digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
+            body = body + digest
+        #
+        channel.basic_publish(
+            exchange=self.queue_config.queue,
+            routing_key="",
+            body=body,
+            properties=pika.BasicProperties(
+                delivery_mode=2
             )
-            #
-            connection.close()
+        )
+        #
+        connection.close()
 
     def _listening_worker(self):
         while self.running:
