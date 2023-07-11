@@ -23,6 +23,7 @@
     Uses existing EventNode as a transport
 """
 
+import time
 import uuid
 import queue
 import threading
@@ -34,7 +35,7 @@ from arbiter import log
 class RpcNode:  # pylint: disable=R0902
     """ RPC node - register and call remote functions """
 
-    def __init__(self, event_node, id_prefix=None):
+    def __init__(self, event_node, id_prefix=None, trace=False):
         self.event_node = event_node
         self.event_node_was_started = False
         #
@@ -47,6 +48,7 @@ class RpcNode:  # pylint: disable=R0902
         self.proxy = RpcProxy(self)
         #
         self.started = False
+        self.trace = trace
 
     def start(self):
         """ Start RPC node """
@@ -95,10 +97,20 @@ class RpcNode:  # pylint: disable=R0902
         if func in self.functions:
             return self.functions[func](*args, **kvargs)
         #
+        if self.trace:
+            trace_start = time.time()
+        #
         request_id = self._make_request(func, args, kvargs)
         response = self.requests[request_id].get()
         with self.lock:
             self.requests.pop(request_id)
+        #
+        if self.trace:
+            trace_end = time.time()
+            log.info(
+                "[RPC TRACE] %s() = %s seconds",
+                func, trace_end - trace_start,
+            )
         #
         if "raise" in response:
             raise response.get("raise")
@@ -112,12 +124,22 @@ class RpcNode:  # pylint: disable=R0902
         if func in self.functions:
             return self.functions[func](*args, **kvargs)
         #
+        if self.trace:
+            trace_start = time.time()
+        #
         request_id = self._make_request(func, args, kvargs)
         try:
             response = self.requests[request_id].get(timeout=timeout)
         finally:
             with self.lock:
                 self.requests.pop(request_id)
+            #
+            if self.trace:
+                trace_end = time.time()
+                log.info(
+                    "[RPC TRACE] %s() = %s seconds",
+                    func, trace_end - trace_start,
+                )
         #
         if "raise" in response:
             raise response.get("raise")
