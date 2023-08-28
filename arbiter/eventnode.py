@@ -50,6 +50,7 @@ class EventNode:  # pylint: disable=R0902
             self, host, port, user, password, vhost="carrier", event_queue="events",
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             ssl_context=None, ssl_server_hostname=None,
+            mute_first_failed_connections=0,
     ):  # pylint: disable=R0913
         self.queue_config = Config(host, port, user, password, vhost, event_queue, all_queue=None)
         self.event_callbacks = dict()  # event_name -> [callbacks]
@@ -77,6 +78,9 @@ class EventNode:  # pylint: disable=R0902
         #
         self.ready_event = threading.Event()
         self.started = False
+        #
+        self.mute_first_failed_connections = mute_first_failed_connections
+        self.failed_connections = 0
         #
         # self.emit_pool = pika_pool.NullPool(
         #     create=self._get_connection
@@ -244,9 +248,12 @@ class EventNode:  # pylint: disable=R0902
                 connection.process_data_events()
                 return connection
             except:  # pylint: disable=W0702
-                log.exception(
-                    "Failed to create connection. Retrying in %s seconds", self.retry_interval
-                )
+                if self.failed_connections >= self.mute_first_failed_connections:
+                    log.exception(
+                        "Failed to create connection. Retrying in %s seconds", self.retry_interval
+                    )
+                #
+                self.failed_connections += 1
                 time.sleep(self.retry_interval)
 
     def _get_channel(self, connection):
