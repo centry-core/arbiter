@@ -15,6 +15,7 @@
 
 import logging
 import pika
+import ssl
 
 from uuid import uuid4
 from json import dumps
@@ -27,8 +28,8 @@ channel = None
 
 
 class Base:
-    def __init__(self, host, port, user, password, vhost="carrier", queue=None, all_queue="arbiterAll", wait_time=2.0):
-        self.config = Config(host, port, user, password, vhost, queue, all_queue)
+    def __init__(self, host, port, user, password, vhost="carrier", queue=None, all_queue="arbiterAll", wait_time=2.0, use_ssl=False, ssl_verify=False):
+        self.config = Config(host, port, user, password, vhost, queue, all_queue, use_ssl, ssl_verify)
         self.state = dict()
         self.wait_time = wait_time
 
@@ -36,6 +37,21 @@ class Base:
         global connection
         global channel
         if not connection:
+            ssl_options = None
+            #
+            if self.config.use_ssl:
+                ssl_context = ssl.create_default_context()
+                if self.config.ssl_verify:
+                    ssl_context.verify_mode = ssl.CERT_REQUIRED
+                    ssl_context.check_hostname = True
+                    ssl_context.load_default_certs()
+                else:
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                ssl_server_hostname = self.config.host
+                #
+                ssl_options = pika.SSLOptions(ssl_context, ssl_server_hostname)
+            #
             connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.config.host,
@@ -44,7 +60,8 @@ class Base:
                     credentials=pika.PlainCredentials(
                         self.config.user,
                         self.config.password
-                    )
+                    ),
+                    ssl_options=ssl_options,
                 )
             )
         if not channel:

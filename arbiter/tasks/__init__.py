@@ -14,6 +14,7 @@
 
 
 import pika
+import ssl
 from json import dumps
 from uuid import uuid4
 from time import sleep
@@ -24,8 +25,8 @@ from arbiter.event.process import ProcessEventHandler
 
 class ProcessWatcher:
     def __init__(self, process_id, host, port, user, password, vhost="carrier", all_queue="arbiterAll",
-                 wait_time=2.0):
-        self.config = Config(host, port, user, password, vhost, None, all_queue)
+                 wait_time=2.0, use_ssl=False, ssl_verify=False):
+        self.config = Config(host, port, user, password, vhost, None, all_queue, use_ssl, ssl_verify)
         self.connection = self._get_connection()
         self.process_id = process_id
         self.state = {}
@@ -37,6 +38,21 @@ class ProcessWatcher:
         self.wait_time = wait_time
 
     def _get_connection(self):  # This code duplication needed to avoid thread safeness problem of pika
+        ssl_options = None
+        #
+        if self.config.use_ssl:
+            ssl_context = ssl.create_default_context()
+            if self.config.ssl_verify:
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                ssl_context.check_hostname = True
+                ssl_context.load_default_certs()
+            else:
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+            ssl_server_hostname = self.config.host
+            #
+            ssl_options = pika.SSLOptions(ssl_context, ssl_server_hostname)
+        #
         _connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=self.config.host,
@@ -45,7 +61,8 @@ class ProcessWatcher:
                 credentials=pika.PlainCredentials(
                     self.config.user,
                     self.config.password
-                )
+                ),
+                ssl_options=ssl_options,
             )
         )
         channel = _connection.channel()

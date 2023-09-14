@@ -35,6 +35,7 @@ import queue
 import time
 import gzip
 import hmac
+import ssl
 
 import pika  # pylint: disable=E0401
 # import pika_pool  # pylint: disable=E0401
@@ -51,12 +52,24 @@ class EventNode:  # pylint: disable=R0902
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             ssl_context=None, ssl_server_hostname=None,
             mute_first_failed_connections=0,
+            use_ssl=False, ssl_verify=False,
     ):  # pylint: disable=R0913
         self.queue_config = Config(host, port, user, password, vhost, event_queue, all_queue=None)
         self.event_callbacks = dict()  # event_name -> [callbacks]
         #
         self.ssl_context = ssl_context
         self.ssl_server_hostname = ssl_server_hostname
+        #
+        if self.ssl_context is None and use_ssl:
+            self.ssl_context = ssl.create_default_context()
+            if ssl_verify:
+                self.ssl_context.verify_mode = ssl.CERT_REQUIRED
+                self.ssl_context.check_hostname = True
+                self.ssl_context.load_default_certs()
+            else:
+                self.ssl_context.check_hostname = False
+                self.ssl_context.verify_mode = ssl.CERT_NONE
+            self.ssl_server_hostname = host
         #
         self.hmac_key = hmac_key
         self.hmac_digest = hmac_digest

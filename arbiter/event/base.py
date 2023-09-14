@@ -17,6 +17,7 @@ import time
 import json
 import threading
 import pika
+import ssl
 import logging
 
 
@@ -33,6 +34,21 @@ class BaseEventHandler(threading.Thread):
         self.wait_time = wait_time
 
     def _get_connection(self):
+        ssl_options = None
+        #
+        if self.settings.use_ssl:
+            ssl_context = ssl.create_default_context()
+            if self.settings.ssl_verify:
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                ssl_context.check_hostname = True
+                ssl_context.load_default_certs()
+            else:
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+            ssl_server_hostname = self.settings.host
+            #
+            ssl_options = pika.SSLOptions(ssl_context, ssl_server_hostname)
+        #
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=self.settings.host,
@@ -41,7 +57,8 @@ class BaseEventHandler(threading.Thread):
                 credentials=pika.PlainCredentials(
                     self.settings.user,
                     self.settings.password
-                )
+                ),
+                ssl_options=ssl_options,
             )
         )
         return connection

@@ -18,8 +18,8 @@ from arbiter.event.rpcClient import RPCClintEventHandler
 
 
 class RPCClient(Base):
-    def __init__(self, host, port, user, password, vhost="carrier", all_queue="arbiterAll"):
-        super().__init__(host, port, user, password, vhost, all_queue=all_queue)
+    def __init__(self, host, port, user, password, vhost="carrier", all_queue="arbiterAll", use_ssl=False, ssl_verify=False):
+        super().__init__(host, port, user, password, vhost, all_queue=all_queue, use_ssl=use_ssl, ssl_verify=ssl_verify)
         self.subscriptions = {}
         self.handler = RPCClintEventHandler(self.config, self.subscriptions, self.state)
         self.handler.start()

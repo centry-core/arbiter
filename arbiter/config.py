@@ -23,7 +23,7 @@ logging.basicConfig(
 
 
 class Config(object):
-    def __init__(self, host, port, user, password, vhost, queue, all_queue):
+    def __init__(self, host, port, user, password, vhost, queue, all_queue, use_ssl=False, ssl_verify=False):
         self.host = host
         self.port = port
         self.user = user
@@ -31,3 +31,5 @@ class Config(object):
         self.vhost = vhost
         self.queue = queue
         self.all = all_queue
+        self.use_ssl = use_ssl
+        self.ssl_verify = ssl_verify

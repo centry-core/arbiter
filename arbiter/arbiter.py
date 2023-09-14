@@ -23,8 +23,8 @@ from .task import Task
 
 
 class Arbiter(Base):
-    def __init__(self, host, port, user, password, timeout=0, vhost="carrier", all_queue="arbiterAll", start_consumer=True):
-        super().__init__(host, port, user, password, vhost, all_queue=all_queue)
+    def __init__(self, host, port, user, password, timeout=0, vhost="carrier", all_queue="arbiterAll", start_consumer=True, use_ssl=False, ssl_verify=False):
+        super().__init__(host, port, user, password, vhost, all_queue=all_queue, use_ssl=use_ssl, ssl_verify=ssl_verify)
         self.arbiter_id = None
         self.state = dict(groups=dict())
         self.subscriptions = dict()

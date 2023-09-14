@@ -23,8 +23,8 @@ from .task import Task
 
 
 class Minion(Base):
-    def __init__(self, host, port, user, password, vhost="carrier", queue="default", all_queue="arbiterAll"):
-        super().__init__(host, port, user, password, vhost, queue, all_queue)
+    def __init__(self, host, port, user, password, vhost="carrier", queue="default", all_queue="arbiterAll", use_ssl=False, ssl_verify=False):
+        super().__init__(host, port, user, password, vhost, queue, all_queue, use_ssl=use_ssl, ssl_verify=ssl_verify)
         self.task_registry = {}
         self.task_handlers = []
 
