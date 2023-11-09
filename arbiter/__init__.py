@@ -15,7 +15,7 @@
 
 from arbiter.arbiter import Arbiter
 from arbiter.minion import Minion
-from arbiter.eventnode import EventNode, MockEventNode
+from arbiter.eventnode import EventNode, RedisEventNode, MockEventNode
 from arbiter.rpcnode import RpcNode
 from arbiter.rpcclient import RPCClient
 from arbiter.task import Task
