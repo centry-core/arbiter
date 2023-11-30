@@ -39,8 +39,8 @@ class RpcNode:  # pylint: disable=R0902
         self.event_node = event_node
         self.event_node_was_started = False
         #
-        self.functions = dict()
-        self.requests = dict()
+        self.functions = {}
+        self.requests = {}
         #
         self.id_prefix = id_prefix if id_prefix is not None else ""
         #

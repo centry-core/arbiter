@@ -1,4 +1,8 @@
-#   Copyright 2020 getcarrier.io
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0114
+
+#   Copyright 2023 getcarrier.io
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -17,5 +21,5 @@ from arbiter.arbiter import Arbiter
 from arbiter.minion import Minion
 from arbiter.eventnode import EventNode, RedisEventNode, MockEventNode
 from arbiter.rpcnode import RpcNode
-from arbiter.rpcclient import RPCClient
+from arbiter.tasknode import TaskNode
 from arbiter.task import Task

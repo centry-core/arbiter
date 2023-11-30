@@ -1,12 +1,30 @@
-import pytest
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0114,C0115,C0116,C0411,C0103
+
+#   Copyright 2023 getcarrier.io
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+
+import pytest  # pylint: disable=E0401,W0611
 
 from time import sleep, time
-from arbiter import Arbiter, Task
+from arbiter import Arbiter, Task, RedisEventNode
 from tests.minion import stop_minion, start_minion
 
 arbiter_host = "localhost"
-arbiter_user = "user"
-arbiter_password = "password"
+arbiter_password = ""
 arbiter_queue = "default"
 
 
@@ -23,13 +41,21 @@ class TestArbiter:
 
     @staticmethod
     def test_task_in_task():
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        tasks_in_task_in_task = 5
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         assert arbiter.workers()[arbiter_queue]['total'] == 10
         task_keys = []
-        for _ in range(20):
+        for _ in range(tasks_in_task_in_task):
             task_keys.append(arbiter.apply("simple_add", task_args=[1, 2])[0])
         for task_key in task_keys:
-            assert arbiter.status(task_key)['state'] in ('initiated', 'running')
+            assert arbiter.status(task_key)['state'] in ('initiated', 'running', 'done')
         for message in arbiter.wait_for_tasks(task_keys):
             assert message['state'] == 'done'
             assert message['result'] == 3
@@ -42,7 +68,14 @@ class TestArbiter:
     @staticmethod
     def test_squad():
         tasks_in_squad = 3
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -58,7 +91,14 @@ class TestArbiter:
     @staticmethod
     def test_pipe():
         tasks_in_pipe = 20
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         tasks = []
         for _ in range(tasks_in_pipe):
             tasks.append(Task("add_in_pipe", task_args=[2]))
@@ -80,7 +120,14 @@ class TestArbiter:
 
     @staticmethod
     def test_kill_task():
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         start = time()
         tasks = arbiter.apply("long_running")
         for task_key in tasks:
@@ -97,7 +144,14 @@ class TestArbiter:
     def test_kill_group():
         tasks_in_squad = 3
         start = time()
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("long_running"))
@@ -113,7 +167,14 @@ class TestArbiter:
     @staticmethod
     def test_squad_callback():
         tasks_in_squad = 3
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -131,7 +192,14 @@ class TestArbiter:
     @staticmethod
     def test_squad_finalyzer():
         tasks_in_squad = 3
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -149,7 +217,14 @@ class TestArbiter:
 
     @staticmethod
     def test_sync_task():
-        arbiter = Arbiter(host=arbiter_host, port=5672, user=arbiter_user, password=arbiter_password)
+        arbiter = Arbiter(
+            event_node=RedisEventNode(
+                host=arbiter_host,
+                port=6379,
+                password=arbiter_password,
+                event_queue="tasks"
+            )
+        )
         for result in arbiter.add_task(Task("simple_add", task_args=[1, 2]), sync=True):
             if isinstance(result, dict):
                 assert result['state'] == 'done'

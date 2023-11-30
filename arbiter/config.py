@@ -1,3 +1,7 @@
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0114,C0115
+
 #   Copyright 2020 getcarrier.io
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,17 +17,8 @@
 #   limitations under the License.
 
 
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    datefmt="%Y.%m.%d %H:%M:%S %Z",
-    format="%(asctime)s - %(levelname)8s - %(name)s - %(message)s",
-)
-
-
-class Config(object):
-    def __init__(self, host, port, user, password, vhost, queue, all_queue, use_ssl=False, ssl_verify=False):
+class Config:  # pylint: disable=R0902,R0903
+    def __init__(self, host, port, user, password, vhost, queue, all_queue, use_ssl=False, ssl_verify=False):  # pylint: disable=C0301,R0913
         self.host = host
         self.port = port
         self.user = user

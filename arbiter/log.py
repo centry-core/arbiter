@@ -25,9 +25,15 @@ import inspect
 LOG_FORMAT = "%(asctime)s - %(levelname)8s - %(name)s - %(message)s"
 LOG_DATE_FORMAT = "%Y.%m.%d %H:%M:%S %Z"
 
+initialized = False  # pylint: disable=C0103
+
 
 def init(level=logging.INFO):
     """ Initialize logging """
+    global initialized  # pylint: disable=W0603
+    if initialized:
+        return
+    #
     logging.basicConfig(
         level=level,
         datefmt=LOG_DATE_FORMAT,
@@ -35,10 +41,16 @@ def init(level=logging.INFO):
     )
     logging.raiseExceptions = False
     logging.getLogger("pika").setLevel(logging.WARNING)
+    #
+    initialized = True
 
 
 def get_logger():
     """ Get logger for caller context """
+    global initialized  # pylint: disable=W0602,W0603
+    if not initialized:
+        init()
+    #
     return logging.getLogger(
         inspect.currentframe().f_back.f_globals["__name__"]
     )
