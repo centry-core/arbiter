@@ -34,6 +34,8 @@ import traceback
 import multiprocessing
 import multiprocessing.connection
 
+from arbiter import log
+
 
 class TaskNode:  # pylint: disable=R0902,R0904
     """ Task node - start, register, query tasks and workers """
@@ -750,64 +752,77 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
 
     def run(self):
         """ Run watcher thread """
-        watcher_max_wait = self.node.watcher_max_wait
         #
         while not self.node.stop_event.is_set():
-            self.node.have_running_tasks.wait(watcher_max_wait)
+            try:
+                self._watch_stopped_tasks()
+            except:  # pylint: disable=W0702
+                log.exception("Exception in watcher thread, continuing")
+
+    def _watch_stopped_tasks(self):
+        watcher_max_wait = self.node.watcher_max_wait
+        self.node.have_running_tasks.wait(watcher_max_wait)
+        #
+        with self.node.lock:
+            sentinel_map = {}
+            #
+            for task_id, data in self.node.running_tasks.items():
+                sentinel_map[data["process"].sentinel] = task_id
+        #
+        ready_sentinels = multiprocessing.connection.wait(
+            list(sentinel_map), timeout=watcher_max_wait
+        )
+        #
+        for sentinel in ready_sentinels:
+            task_id = sentinel_map[sentinel]
+            task_data = self.node.running_tasks[task_id]
+            task_state = self.node.global_task_state[task_id].copy()
+            #
+            try:
+                result = task_data["result"].get_nowait()
+            except:  # pylint: disable=W0702
+                result = None
+            #
+            task_state["status"] = "stopped"
+            task_state["result"] = result
             #
             with self.node.lock:
-                sentinel_map = {}
-                #
-                for task_id, data in self.node.running_tasks.items():
-                    sentinel_map[data["process"].sentinel] = task_id
+                self.node.running_tasks.pop(task_id)
+                if not self.node.running_tasks:
+                    self.node.have_running_tasks.clear()
             #
-            ready_sentinels = multiprocessing.connection.wait(
-                list(sentinel_map), timeout=watcher_max_wait
+            try:
+                task_data["result"].close()
+            except:  # pylint: disable=W0702
+                log.exception("Failed to close result, continuing")
+            #
+            try:
+                task_data["process"].close()
+            except:  # pylint: disable=W0702
+                log.exception("Failed to close process, continuing")
+            #
+            self.node.event_node.emit(
+                "task_node_announce",
+                {
+                    "ident": self.node.ident,
+                    "pool": self.node.pool,
+                    "task_limit": self.node.task_limit,
+                    "running_tasks": len(self.node.running_tasks),
+                }
             )
             #
-            for sentinel in ready_sentinels:
-                task_id = sentinel_map[sentinel]
-                task_data = self.node.running_tasks[task_id]
-                task_state = self.node.global_task_state[task_id].copy()
-                #
-                try:
-                    result = task_data["result"].get_nowait()
-                except:  # pylint: disable=W0702
-                    result = None
-                #
-                task_state["status"] = "stopped"
-                task_state["result"] = result
-                #
-                with self.node.lock:
-                    self.node.running_tasks.pop(task_id)
-                    if not self.node.running_tasks:
-                        self.node.have_running_tasks.clear()
-                #
-                task_data["result"].close()
-                task_data["process"].close()
-                #
-                self.node.event_node.emit(
-                    "task_node_announce",
-                    {
-                        "ident": self.node.ident,
-                        "pool": self.node.pool,
-                        "task_limit": self.node.task_limit,
-                        "running_tasks": len(self.node.running_tasks),
-                    }
-                )
-                #
-                self.node.event_node.emit(
-                    "task_state_announce",
-                    task_state
-                )
-                #
-                self.node.event_node.emit(
-                    "task_status_change",
-                    {
-                        "task_id": task_id,
-                        "status": "stopped",
-                    }
-                )
+            self.node.event_node.emit(
+                "task_state_announce",
+                task_state
+            )
+            #
+            self.node.event_node.emit(
+                "task_status_change",
+                {
+                    "task_id": task_id,
+                    "status": "stopped",
+                }
+            )
 
 
 class TaskNodeHousekeeper(threading.Thread):  # pylint: disable=R0903
