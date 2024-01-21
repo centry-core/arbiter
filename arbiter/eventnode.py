@@ -30,19 +30,42 @@
 """
 
 import threading
+import importlib
 import pickle
 import queue
 import time
 import gzip
 import hmac
 import ssl
+import os
 
 import pika  # pylint: disable=E0401
 # import pika_pool  # pylint: disable=E0401
 from redis import StrictRedis  # pylint: disable=E0401
+import socketio  # pylint: disable=E0401
 
 from arbiter import log
 from arbiter.config import Config
+
+
+def make_event_node(config=None, env_prefix="EVENTNODE_"):
+    """ Make *EventNode instance """
+    if config is None:
+        config = {}
+        #
+        for key, value in os.environ.items():
+            if key.startswith(env_prefix):
+                config[key[len(env_prefix):].lower()] = value
+    #
+    eventnode_cfg = config.copy()
+    eventnode_type = eventnode_cfg.pop("type")
+    #
+    eventnode_cls = getattr(
+        importlib.import_module("arbiter.eventnode"),
+        eventnode_type
+    )
+    #
+    return eventnode_cls(**eventnode_cfg)
 
 
 class EventNode:  # pylint: disable=R0902
@@ -456,6 +479,196 @@ class RedisEventNode:  # pylint: disable=R0902
                 )
                 #
                 return redis
+            except:  # pylint: disable=W0702
+                if self.failed_connections >= self.mute_first_failed_connections:
+                    log.exception(
+                        "Failed to create connection. Retrying in %s seconds", self.retry_interval
+                    )
+                #
+                self.failed_connections += 1
+                time.sleep(self.retry_interval)
+        #
+        return None
+
+
+class SocketIOEventNode:  # pylint: disable=R0902
+    """ Event node (Socket.IO) - allows to subscribe to events and to emit new events """
+
+    def __init__(
+            self, url, password, room="events",
+            hmac_key=None, hmac_digest="sha512", callback_workers=1,
+            mute_first_failed_connections=0,
+            ssl_verify=False, socketio_path="socket.io",
+    ):  # pylint: disable=R0913
+        self.sio_config = {
+            "url": url,
+            "password": password,
+            "room": room,
+            "ssl_verify": ssl_verify,
+            "socketio_path": socketio_path,
+        }
+        self.event_callbacks = {}  # event_name -> [callbacks]
+        #
+        self.hmac_key = hmac_key
+        self.hmac_digest = hmac_digest
+        if self.hmac_key is not None and isinstance(self.hmac_key, str):
+            self.hmac_key = self.hmac_key.encode("utf-8")
+        #
+        self.retry_interval = 3.0
+        #
+        self.stop_event = threading.Event()
+        self.event_lock = threading.Lock()
+        self.sync_queue = queue.Queue()
+        #
+        self.listening_thread = threading.Thread(target=self._listening_worker, daemon=True)
+        self.callback_threads = []
+        for _ in range(callback_workers):
+            self.callback_threads.append(
+                threading.Thread(target=self._callback_worker, daemon=True)
+            )
+        #
+        self.ready_event = threading.Event()
+        self.started = False
+        #
+        self.mute_first_failed_connections = mute_first_failed_connections
+        self.failed_connections = 0
+        #
+        self.sio = None
+
+    def start(self):
+        """ Start event node """
+        if self.started:
+            return
+        #
+        self.sio = self._get_connection()
+        #
+        self.listening_thread.start()
+        for callback_thread in self.callback_threads:
+            callback_thread.start()
+        #
+        self.ready_event.wait()
+        self.started = True
+
+    def stop(self):
+        """ Stop event node """
+        self.stop_event.set()
+        #
+        if self.started:
+            self.sio.disconnect()
+
+    @property
+    def running(self):
+        """ Check if it is time to stop """
+        return not self.stop_event.is_set()
+
+    def subscribe(self, event_name, callback):
+        """ Subscribe to event """
+        with self.event_lock:
+            if event_name not in self.event_callbacks:
+                self.event_callbacks[event_name] = []
+            if callback not in self.event_callbacks[event_name]:
+                self.event_callbacks[event_name].append(callback)
+
+    def unsubscribe(self, event_name, callback):
+        """ Unsubscribe from event """
+        with self.event_lock:
+            if event_name not in self.event_callbacks:
+                return
+            if callback not in self.event_callbacks[event_name]:
+                return
+            self.event_callbacks[event_name].remove(callback)
+
+    def emit(self, event_name, payload=None):
+        """ Emit event with payload data """
+        event = {
+            "name": event_name,
+            "payload": payload,
+        }
+        body = gzip.compress(pickle.dumps(
+            event, protocol=pickle.HIGHEST_PROTOCOL
+        ))
+        if self.hmac_key is not None:
+            digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
+            body = body + digest
+        #
+        with self.event_lock:
+            self.sio.emit("eventnode_event", body)
+
+    def _listening_worker(self):
+        while self.running:
+            try:
+                self.sio.on("eventnode_event", self._listening_callback)
+                self.ready_event.set()
+                self.sio.wait()
+            except:  # pylint: disable=W0702
+                log.exception(
+                    "Exception in listening thread. Retrying in %s seconds", self.retry_interval
+                )
+                time.sleep(self.retry_interval)
+            finally:
+                try:
+                    pass  # TODO: handle socketio errors
+                except:  # pylint: disable=W0702
+                    pass
+
+    def _listening_callback(self, body):
+        self.sync_queue.put(body)
+
+    def _callback_worker(self):
+        while self.running:
+            try:
+                body = self.sync_queue.get()
+                #
+                if self.hmac_key is not None:
+                    hmac_obj = hmac.new(self.hmac_key, digestmod=self.hmac_digest)
+                    hmac_size = hmac_obj.digest_size
+                    #
+                    body_digest = body[-hmac_size:]
+                    body = body[:-hmac_size]
+                    #
+                    digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
+                    #
+                    if not hmac.compare_digest(body_digest, digest):
+                        log.error("Invalid event digest, skipping")
+                        continue
+                #
+                event = pickle.loads(gzip.decompress(body))
+                #
+                event_name = event.get("name")
+                event_payload = event.get("payload")
+                #
+                with self.event_lock:
+                    if event_name not in self.event_callbacks:
+                        continue
+                    callbacks = self.event_callbacks[event_name].copy()
+                #
+                for callback in callbacks:
+                    try:
+                        callback(event_name, event_payload)
+                    except:  # pylint: disable=W0702
+                        log.exception("Event callback failed, skipping")
+            except:  # pylint: disable=W0702
+                log.exception("Error during event processing, skipping")
+
+    def _get_connection(self):
+        while self.running:
+            try:
+                sio = socketio.Client(
+                    ssl_verify=self.sio_config["ssl_verify"],
+                )
+                #
+                sio.connect(
+                    url=self.sio_config["url"],
+                    socketio_path=self.sio_config["socketio_path"],
+                )
+                #
+                with self.event_lock:
+                    sio.emit("eventnode_join", {
+                        "password": self.sio_config["password"],
+                        "room": self.sio_config["room"],
+                    })
+                #
+                return sio
             except:  # pylint: disable=W0702
                 if self.failed_connections >= self.mute_first_failed_connections:
                     log.exception(
