@@ -53,9 +53,29 @@ def make_event_node(config=None, env_prefix="EVENTNODE_"):
     if config is None:
         config = {}
         #
+        int_vars = [
+            "port",
+            "callback_workers",
+            "mute_first_failed_connections",
+        ]
+        #
+        bool_vars = [
+            "use_ssl",
+            "ssl_verify",
+        ]
+        #
         for key, value in os.environ.items():
             if key.startswith(env_prefix):
-                config[key[len(env_prefix):].lower()] = value
+                config_key = key[len(env_prefix):].lower()
+                config_value = value
+                #
+                if config_key in int_vars:
+                    config_value = int(value)
+                #
+                if config_key in bool_vars:
+                    config_value = value.lower() in ["true", "yes"]
+                #
+                config[config_key] = config_value
     #
     eventnode_cfg = config.copy()
     eventnode_type = eventnode_cfg.pop("type")
