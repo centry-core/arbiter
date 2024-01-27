@@ -35,7 +35,7 @@ from arbiter import log
 class RpcNode:  # pylint: disable=R0902
     """ RPC node - register and call remote functions """
 
-    def __init__(self, event_node, id_prefix=None, trace=False):
+    def __init__(self, event_node, id_prefix=None, trace=False, proxy_timeout=None):
         self.event_node = event_node
         self.event_node_was_started = False
         #
@@ -43,9 +43,12 @@ class RpcNode:  # pylint: disable=R0902
         self.requests = {}
         #
         self.id_prefix = id_prefix if id_prefix is not None else ""
-        #
         self.lock = threading.Lock()
-        self.proxy = RpcProxy(self)
+        #
+        if proxy_timeout is None:
+            self.proxy = RpcProxy(self)
+        else:
+            self.proxy = RpcTimeoutProxy(self, proxy_timeout)
         #
         self.started = False
         self.trace = trace
