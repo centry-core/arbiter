@@ -113,18 +113,25 @@ class EventNodeBase:  # pylint: disable=R0902
 
     def emit(self, event_name, payload=None):
         """ Emit event with payload data """
+        data = self.make_event_data(event_name, payload)
+        self.emit_data(data)
+
+    def make_event_data(self, event_name, payload=None):
+        """ Make event data """
         event = {
             "name": event_name,
             "payload": payload,
         }
-        body = gzip.compress(pickle.dumps(
+        #
+        data = gzip.compress(pickle.dumps(
             event, protocol=pickle.HIGHEST_PROTOCOL
         ))
-        if self.hmac_key is not None:
-            digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
-            body = body + digest
         #
-        self.emit_data(body)
+        if self.hmac_key is not None:
+            digest = hmac.digest(self.hmac_key, data, self.hmac_digest)
+            data = data + digest
+        #
+        return data
 
     def emit_data(self, data):
         """ Emit event data """
