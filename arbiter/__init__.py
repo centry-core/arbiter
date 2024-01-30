@@ -20,7 +20,10 @@
 from arbiter.arbiter import Arbiter
 from arbiter.minion import Minion
 from arbiter.eventnode import make_event_node
-from arbiter.eventnode import EventNode, RedisEventNode, SocketIOEventNode, MockEventNode
+from arbiter.eventnode import EventNode
+from arbiter.eventnode import RedisEventNode
+from arbiter.eventnode import SocketIOEventNode
+from arbiter.eventnode import MockEventNode
 from arbiter.rpcnode import RpcNode
 from arbiter.tasknode import TaskNode
 from arbiter.task import Task
