@@ -701,7 +701,11 @@ class TaskNode:  # pylint: disable=R0902,R0904
         result = multiprocessing.Queue()
         process = multiprocessing.get_context(self.multiprocessing_context).Process(
             target=self.executor,
-            args=(self.task_registry[name], args, kwargs, result),
+            args=(
+                self.task_registry[name],
+                args, kwargs, result,
+                self.multiprocessing_context,
+            ),
             kwargs={},
             daemon=False,
         )
@@ -725,8 +729,16 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
 
     @staticmethod
-    def executor(target, args, kwargs, result):
+    def executor(target, args, kwargs, result, multiprocessing_context):
         """ Task executor """
+        if multiprocessing_context == "fork":
+            # After fork
+            import ssl  # pylint: disable=C0415
+            ssl.RAND_bytes(1)
+            import os  # pylint: disable=C0415
+            import signal  # pylint: disable=C0415
+            signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
+        #
         try:
             output = target(*args, **kwargs)
             result.put({"return": output})
