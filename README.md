@@ -1,11 +1,11 @@
 # Arbiter
-Distributed tasks queue use RabbitMQ as broker. Consists of arbiter and minion.
+Distributed tasks queue use Redis as broker. Consists of arbiter and minion.
 
 ## Installation
 
 Clone git repo
 ```bash
-git clone https://github.com/carrier-io/arbiter.git 
+git clone https://github.com/carrier-io/arbiter.git
 ```
 and install by running
 ```bash
@@ -15,22 +15,20 @@ python setup.py install
 
 ## Basic scenario
 
-Launch RabbitMQ, as it required for everything to work
+Launch Redis, as it required for everything to work
 ```bash
-docker run -d --rm --hostname arbiter-rabbit --name arbiter-rabbit \
-           -p 5672:5672 -p 15672:15672 -e RABBITMQ_DEFAULT_USER=user \
-           -e RABBITMQ_DEFAULT_PASS=password \
-           -e RABBITMQ_DEFAULT_VHOST=carrier \
-           rabbitmq:3-management
+docker run -d --rm --hostname arbiter-redis --name arbiter-redis \
+           -p 6379:6379 redis:alpine redis-server
 ```
 
 ### Create simple task
 You need to initiate minion and provide connection details:
 ```python
+from arbiter import RedisEventNode
 from arbiter import Minion
 
-app = Minion(host="localhost", port=5672, 
-             user='user', password='password')
+event_node = RedisEventNode(host="localhost", port=6379, password="", event_queue="tasks")
+app = Minion(event_node, queue="default")
 ```
 then you can declare tasks by decorating callable with `@app.task`
 ```python
@@ -44,13 +42,11 @@ this is pretty much it to create first task
 Now we need to create execution point
 ```python
 if __name__ == "__main__":
-    app.run(worker_type="heavy", workers=3)
+    app.run(workers=3)
 ```
-where `worker_type` can be either light or heavy, and quantity of worker slots to do the job(s) 
+where `workers` is a quantity of worker slots to do the job(s)
 
 Run created script. Minion is ready to accept work orders.
-
-example of minion can be found at `test_app\minion.py`
 
 ### Call created task from arbiter
 Arbiter is job initiator, it maintain the state of all jobs it created and can retrieve results.
@@ -59,9 +55,12 @@ Each arbiter have it's own communication channel, so job results won't mess betw
 
 Declaring the arbiter
 ```python
+from arbiter import RedisEventNode
 from arbiter import Arbiter
-arbiter = Arbiter(host='localhost', port=5672, user='user', password='password')
-``` 
+
+event_node = RedisEventNode(host="localhost", port=6379, password="", event_queue="tasks")
+arbiter = Arbiter(event_node)
+```
 to call the task and track it till it done (tasks are obviously async)
 ```python
 task_keys = arbiter.apply("simple_add", tasks_count=1, task_args=[1, 2]) #  will return array of task ids
@@ -75,5 +74,3 @@ Alternatively you can get task result by calling
 arbiter.status(task_keys[0])
 ```
 it will return `json` where `result` will be one of the keys
-
-Example of arbiter can be found in `test_app/comander.py`

@@ -738,6 +738,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             import os  # pylint: disable=C0415
             import signal  # pylint: disable=C0415
             signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
+            # Also need to think about gevent? logging? base pylon re-init here?
         #
         try:
             output = target(*args, **kwargs)
