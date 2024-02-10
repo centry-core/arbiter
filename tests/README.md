@@ -10,7 +10,7 @@ Launch minion app with `python minion.py`
 
 ## Running tests
 
-to run tests you need to execution `python -q tests/`
+to run tests you need to execution `pytest -q tests/`
 
 ## Test coverage
 
