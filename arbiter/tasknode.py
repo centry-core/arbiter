@@ -201,8 +201,11 @@ class TaskNode:  # pylint: disable=R0902,R0904
     # Task start and stop
     #
 
-    def start_task(self, name, args=None, kwargs=None, pool=None):  # pylint: disable=R0913
+    def start_task(self, name, args=None, kwargs=None, pool=None, meta=None):  # pylint: disable=R0913
         """ Start task execution """
+        if meta is not None and not isinstance(meta, dict):
+            raise ValueError("Meta must be None or dict")
+        #
         task_id = self.generate_task_id()
         #
         self.event_node.emit(
@@ -213,6 +216,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "runner": None,
                 "status": "pending",
                 "result": None,
+                "meta": meta,
             }
         )
         #
@@ -251,6 +255,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                         "task_start_request",
                         {
                             "name": name,
+                            "meta": meta,
                             "args": args,
                             "kwargs": kwargs,
                             "pool": pool,
@@ -276,6 +281,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                             "runner": None,
                             "status": "stopped",
                             "result": None,
+                            "meta": meta,
                         }
                     )
                     #
@@ -323,7 +329,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         return self.get_task_result(task_id)
 
     #
-    # Task status and result
+    # Task status, meta and result
     #
 
     def get_task_status(self, task_id):
@@ -335,6 +341,20 @@ class TaskNode:  # pylint: disable=R0902,R0904
             raise RuntimeError("Unknown task")
         #
         return self.global_task_state[task_id].get("status", "unknown")
+
+    def get_task_meta(self, task_id):
+        """ Get task meta """
+        if task_id not in self.global_task_state:
+            self.query_task_state(task_id)
+        #
+        if task_id not in self.global_task_state:
+            raise RuntimeError("Unknown task")
+        #
+        meta = self.global_task_state[task_id].get("meta", None)
+        if meta is None:
+            meta = {}
+        #
+        return meta.copy()
 
     def get_task_result(self, task_id):
         """ Get task result """
@@ -652,6 +672,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "runner": self.ident,
                 "status": "running",
                 "result": None,
+                "meta": event_payload.get("meta", None),
             }
         )
         #
@@ -666,6 +687,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.execute_local_task(
             event_payload.get("task_id", None),
             event_payload.get("name", None),
+            event_payload.get("meta", None),
             event_payload.get("args", None),
             event_payload.get("kwargs", None)
         )
@@ -688,11 +710,13 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         return task_id
 
-    def execute_local_task(self, task_id, name, args=None, kwargs=None):
+    def execute_local_task(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
         """ Start task from task registry """
         if name not in self.task_registry:
             raise RuntimeError("Task not found")
         #
+        if meta is None:
+            meta = {}
         if args is None:
             args = ()
         if kwargs is None:
@@ -703,7 +727,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             target=self.executor,
             args=(
                 self.task_registry[name],
-                args, kwargs, result,
+                task_id, meta, args, kwargs, result,
                 self.multiprocessing_context,
             ),
             kwargs={},
@@ -729,7 +753,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
 
     @staticmethod
-    def executor(target, args, kwargs, result, multiprocessing_context):
+    def executor(target, task_id, meta, args, kwargs, result, multiprocessing_context):  # pylint: disable=R0913
         """ Task executor """
         if multiprocessing_context == "fork":
             # After fork
@@ -739,6 +763,13 @@ class TaskNode:  # pylint: disable=R0902,R0904
             import signal  # pylint: disable=C0415
             signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
             # Also need to think about gevent? logging? base pylon re-init here?
+        #
+        import sys  # pylint: disable=C0415
+        import types  # pylint: disable=C0415
+        sys.modules["tasknode_task"] = types.ModuleType("tasknode_task")
+        sys.modules["tasknode_task"].__path__ = []
+        setattr(sys.modules["tasknode_task"], "id", task_id)
+        setattr(sys.modules["tasknode_task"], "meta", meta.copy())
         #
         try:
             output = target(*args, **kwargs)
