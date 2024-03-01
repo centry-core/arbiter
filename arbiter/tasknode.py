@@ -779,45 +779,49 @@ class TaskNode:  # pylint: disable=R0902,R0904
     @staticmethod
     def executor(target, task_id, meta, args, kwargs, result_config, multiprocessing_context):  # pylint: disable=R0913,R0914
         """ Task executor """
-        import setproctitle  # pylint: disable=C0415,E0401
-        setproctitle.setproctitle(f'tasknode_task {task_id}')
-        #
-        if multiprocessing_context == "fork":
-            # After fork
-            import ssl  # pylint: disable=C0415
-            ssl.RAND_bytes(1)
-            import os  # pylint: disable=C0415
-            import signal  # pylint: disable=C0415
-            signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
-            # Also need to think about gevent? logging? base pylon re-init here?
-        #
-        import sys  # pylint: disable=C0415
-        import types  # pylint: disable=C0415
-        sys.modules["tasknode_task"] = types.ModuleType("tasknode_task")
-        sys.modules["tasknode_task"].__path__ = []
-        setattr(sys.modules["tasknode_task"], "id", task_id)
-        setattr(sys.modules["tasknode_task"], "meta", meta.copy())
-        #
         try:
-            output = target(*args, **kwargs)
-            data = {"return": output}
+            import setproctitle  # pylint: disable=C0415,E0401
+            setproctitle.setproctitle(f'tasknode_task {task_id}')
+            #
+            if multiprocessing_context == "fork":
+                # After fork
+                import ssl  # pylint: disable=C0415
+                ssl.RAND_bytes(1)
+                import os  # pylint: disable=C0415
+                import signal  # pylint: disable=C0415
+                signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
+                # Also need to think about gevent? logging? base pylon re-init here?
+            #
+            import sys  # pylint: disable=C0415
+            import types  # pylint: disable=C0415
+            sys.modules["tasknode_task"] = types.ModuleType("tasknode_task")
+            sys.modules["tasknode_task"].__path__ = []
+            setattr(sys.modules["tasknode_task"], "id", task_id)
+            setattr(sys.modules["tasknode_task"], "meta", meta.copy())
+            #
+            try:
+                output = target(*args, **kwargs)
+                data = {"return": output}
+            except:  # pylint: disable=W0702
+                error = traceback.format_exc()
+                data = {"raise": error}
+            #
+            result = gzip.compress(pickle.dumps(
+                data, protocol=pickle.HIGHEST_PROTOCOL
+            ))
+            #
+            result_event_node = make_event_node(config=result_config)
+            result_event_node.start(emit_only=True)
+            result_event_node.emit("task_result_payload", {
+                "task_id": task_id,
+                "payload": result,
+            })
+            result_event_node.stop()
+            #
+            time.sleep(0.5)
         except:  # pylint: disable=W0702
-            error = traceback.format_exc()
-            data = {"raise": error}
-        #
-        result = gzip.compress(pickle.dumps(
-            data, protocol=pickle.HIGHEST_PROTOCOL
-        ))
-        #
-        result_event_node = make_event_node(config=result_config)
-        result_event_node.start(emit_only=True)
-        result_event_node.emit("task_result_payload", {
-            "task_id": task_id,
-            "payload": result,
-        })
-        #
-        time.sleep(0.5)
-        result_event_node.stop()
+            log.exception("Task execution failed")
+            raise
 
     def get_callable_name(self, func):
         """ Get callable name """
