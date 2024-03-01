@@ -24,9 +24,11 @@
     Uses existing EventNode as a transport
 """
 
+import gzip
 import time
 import uuid
 import queue
+import pickle
 import datetime
 import threading
 import functools
@@ -370,7 +372,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             return ...  # invalid result or task is still running
         #
         if "return" in result:
-            return result["return"]
+            return pickle.loads(gzip.decompress(result["return"]))
         #
         if "raise" in result:
             raise Exception("\n".join(["", result["raise"]]))  # pylint: disable=W0719
@@ -773,7 +775,11 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         try:
             output = target(*args, **kwargs)
-            result.put({"return": output})
+            result.put({
+                "return": gzip.compress(pickle.dumps(
+                    output, protocol=pickle.HIGHEST_PROTOCOL
+                ))
+            })
         except:  # pylint: disable=W0702
             error = traceback.format_exc()
             result.put({"raise": error})
