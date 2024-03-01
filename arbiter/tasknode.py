@@ -372,7 +372,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             return ...  # invalid result or task is still running
         #
         if "return" in result:
-            return pickle.loads(gzip.decompress(result["return"]))
+            return result["return"]
         #
         if "raise" in result:
             raise Exception("\n".join(["", result["raise"]]))  # pylint: disable=W0719
@@ -757,6 +757,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
     @staticmethod
     def executor(target, task_id, meta, args, kwargs, result, multiprocessing_context):  # pylint: disable=R0913
         """ Task executor """
+        import setproctitle
+        setproctitle.setproctitle(f'tasknode_task {task_id}')
+        #
         if multiprocessing_context == "fork":
             # After fork
             import ssl  # pylint: disable=C0415
@@ -775,14 +778,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         try:
             output = target(*args, **kwargs)
-            result.put({
-                "return": gzip.compress(pickle.dumps(
-                    output, protocol=pickle.HIGHEST_PROTOCOL
-                ))
-            })
+            data = {"return": output}
         except:  # pylint: disable=W0702
             error = traceback.format_exc()
-            result.put({"raise": error})
+            data = {"raise": error}
+        #
+        result.put(gzip.compress(pickle.dumps(
+            data, protocol=pickle.HIGHEST_PROTOCOL
+        )))
 
     def get_callable_name(self, func):
         """ Get callable name """
@@ -832,6 +835,9 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                 result = task_data["result"].get_nowait()
             except:  # pylint: disable=W0702
                 result = None
+            #
+            if result is not None:
+                result = pickle.loads(gzip.decompress(result))
             #
             task_state["status"] = "stopped"
             task_state["result"] = result
