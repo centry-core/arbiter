@@ -815,6 +815,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
             "task_id": task_id,
             "payload": result,
         })
+        #
+        time.sleep(0.5)
         result_event_node.stop()
 
     def get_callable_name(self, func):
