@@ -27,6 +27,8 @@ import threading
 
 from arbiter import log
 
+from .tools import make_event_node
+
 
 class EventNodeBase:  # pylint: disable=R0902
     """ Event node (base) - allows to subscribe to events and to emit new events """
@@ -37,6 +39,8 @@ class EventNodeBase:  # pylint: disable=R0902
             callback_workers=1,
             log_errors=True,
     ):  # pylint: disable=R0913
+        self.clone_config = None
+        #
         self.log_errors = log_errors
         self.event_callbacks = {}  # event_name -> [callbacks]
         self.catch_all_callbacks = []
@@ -59,6 +63,13 @@ class EventNodeBase:  # pylint: disable=R0902
         #
         self.ready_event = threading.Event()
         self.started = False
+
+    def clone(self):
+        """ Make new event node with same config """
+        if self.clone_config is None:
+            raise NotImplementedError
+        #
+        return make_event_node(config=self.clone_config)
 
     def start(self, emit_only=False):
         """ Start event node """

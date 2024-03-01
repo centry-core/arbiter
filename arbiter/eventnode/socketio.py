@@ -40,6 +40,20 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
     ):  # pylint: disable=R0913
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
+        self.clone_config = {
+            "type": "SocketIOEventNode",
+            "url": url,
+            "password": password,
+            "room": room,
+            "hmac_key": hmac_key,
+            "hmac_digest": hmac_digest,
+            "callback_workers": callback_workers,
+            "mute_first_failed_connections": mute_first_failed_connections,
+            "ssl_verify": ssl_verify,
+            "socketio_path": socketio_path,
+            "log_errors": log_errors,
+        }
+        #
         self.sio_config = {
             "url": url,
             "password": password,

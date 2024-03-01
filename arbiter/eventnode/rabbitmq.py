@@ -43,6 +43,25 @@ class EventNode(EventNodeBase):  # pylint: disable=R0902
     ):  # pylint: disable=R0913,R0914
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
+        self.clone_config = {
+            "type": "EventNode",
+            "host": host,
+            "port": port,
+            "user": user,
+            "password": password,
+            "vhost": vhost,
+            "event_queue": event_queue,
+            "hmac_key": hmac_key,
+            "hmac_digest": hmac_digest,
+            "callback_workers": callback_workers,
+            "ssl_context": ssl_context,
+            "ssl_server_hostname": ssl_server_hostname,
+            "mute_first_failed_connections": mute_first_failed_connections,
+            "use_ssl": use_ssl,
+            "ssl_verify": ssl_verify,
+            "log_errors": log_errors,
+        }
+        #
         self.queue_config = Config(host, port, user, password, vhost, event_queue, all_queue=None)
         #
         self.ssl_context = ssl_context

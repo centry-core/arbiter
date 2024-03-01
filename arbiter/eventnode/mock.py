@@ -25,6 +25,22 @@ from .base import EventNodeBase
 class MockEventNode(EventNodeBase):  # pylint: disable=R0902
     """ Event node (local-only mock) - allows to subscribe to events and to emit new events """
 
+    def __init__(
+            self,
+            hmac_key=None, hmac_digest="sha512",
+            callback_workers=1,
+            log_errors=True,
+    ):  # pylint: disable=R0913
+        super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
+        #
+        self.clone_config = {
+            "type": "MockEventNode",
+            "hmac_key": hmac_key,
+            "hmac_digest": hmac_digest,
+            "callback_workers": callback_workers,
+            "log_errors": log_errors,
+        }
+
     def emit_data(self, data):
         """ Emit event data """
         self.sync_queue.put(data)

@@ -40,6 +40,20 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
     ):  # pylint: disable=R0913
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
+        self.clone_config = {
+            "type": "RedisEventNode",
+            "host": host,
+            "port": port,
+            "password": password,
+            "event_queue": event_queue,
+            "hmac_key": hmac_key,
+            "hmac_digest": hmac_digest,
+            "callback_workers": callback_workers,
+            "mute_first_failed_connections": mute_first_failed_connections,
+            "use_ssl": use_ssl,
+            "log_errors": log_errors,
+        }
+        #
         self.redis_config = {
             "host": host,
             "port": port,
