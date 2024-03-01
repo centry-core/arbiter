@@ -755,9 +755,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
 
     @staticmethod
-    def executor(target, task_id, meta, args, kwargs, result, multiprocessing_context):  # pylint: disable=R0913
+    def executor(target, task_id, meta, args, kwargs, result, multiprocessing_context):  # pylint: disable=R0913,R0914
         """ Task executor """
-        import setproctitle
+        import setproctitle  # pylint: disable=C0415,E0401
         setproctitle.setproctitle(f'tasknode_task {task_id}')
         #
         if multiprocessing_context == "fork":
