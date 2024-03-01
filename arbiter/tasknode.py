@@ -38,6 +38,8 @@ import multiprocessing.connection
 
 from arbiter import log
 
+from .eventnode.tools import make_event_node
+
 
 class TaskNode:  # pylint: disable=R0902,R0904
     """ Task node - start, register, query tasks and workers """
@@ -48,7 +50,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             multiprocessing_context="spawn", kill_on_stop=False,
             task_retention_period=3600, housekeeping_interval=60,
             start_max_wait=3, query_wait=3,
-            watcher_max_wait=3, stop_node_task_wait=3,
+            watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
     ):
         self.event_node = event_node
         self.event_node_was_started = False
@@ -79,6 +81,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.query_wait = query_wait
         self.watcher_max_wait = watcher_max_wait
         self.stop_node_task_wait = stop_node_task_wait
+        self.result_max_wait = result_max_wait
         #
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -111,6 +114,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.event_node.subscribe("task_stop_request", self.on_stop_request)
         self.event_node.subscribe("task_state_announce", self.on_state_announce)
+        self.event_node.subscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.subscribe("task_state_query", self.on_state_query)
         self.event_node.subscribe("task_state_reply", self.on_state_reply)
@@ -159,6 +163,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.event_node.unsubscribe("task_stop_request", self.on_stop_request)
         self.event_node.unsubscribe("task_state_announce", self.on_state_announce)
+        self.event_node.unsubscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.unsubscribe("task_state_query", self.on_state_query)
         self.event_node.unsubscribe("task_state_reply", self.on_state_reply)
@@ -368,8 +373,10 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         result = self.global_task_state[task_id].get("result", None)
         #
-        if result is None or not isinstance(result, dict):
+        if result is None:
             return ...  # invalid result or task is still running
+        #
+        result = pickle.loads(gzip.decompress(result))
         #
         if "return" in result:
             return result["return"]
@@ -510,6 +517,18 @@ class TaskNode:  # pylint: disable=R0902,R0904
             #
             if task_status == "stopped":
                 self.state_events[task_id]["event"].set()
+
+    def on_result_payload(self, event_name, event_payload):
+        _ = event_name
+        #
+        task_id = event_payload.get("task_id")
+        payload = event_payload.get("payload")
+        #
+        with self.lock:
+            if task_id not in self.running_tasks:
+                return
+            #
+            self.running_tasks[task_id]["result"] = payload
 
     def on_state_query(self, event_name, event_payload):
         _ = event_name
@@ -724,15 +743,18 @@ class TaskNode:  # pylint: disable=R0902,R0904
         if kwargs is None:
             kwargs = {}
         #
-        result = multiprocessing.Queue()
         process = multiprocessing.get_context(self.multiprocessing_context).Process(
             target=self.executor,
-            args=(
-                self.task_registry[name],
-                task_id, meta, args, kwargs, result,
-                self.multiprocessing_context,
-            ),
-            kwargs={},
+            args=(),
+            kwargs={
+                "target": self.task_registry[name],
+                "task_id": task_id,
+                "meta": meta,
+                "args": args,
+                "kwargs": kwargs,
+                "result_config": self.event_node.clone_config.copy(),
+                "multiprocessing_context": self.multiprocessing_context,
+            },
             daemon=False,
         )
         process.start()
@@ -740,7 +762,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         with self.lock:
             self.running_tasks[task_id] = {
                 "process": process,
-                "result": result,
+                "result": None,
             }
             self.have_running_tasks.set()
         #
@@ -755,7 +777,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
 
     @staticmethod
-    def executor(target, task_id, meta, args, kwargs, result, multiprocessing_context):  # pylint: disable=R0913,R0914
+    def executor(target, task_id, meta, args, kwargs, result_config, multiprocessing_context):  # pylint: disable=R0913,R0914
         """ Task executor """
         import setproctitle  # pylint: disable=C0415,E0401
         setproctitle.setproctitle(f'tasknode_task {task_id}')
@@ -783,9 +805,17 @@ class TaskNode:  # pylint: disable=R0902,R0904
             error = traceback.format_exc()
             data = {"raise": error}
         #
-        result.put(gzip.compress(pickle.dumps(
+        result = gzip.compress(pickle.dumps(
             data, protocol=pickle.HIGHEST_PROTOCOL
-        )))
+        ))
+        #
+        result_event_node = make_event_node(config=result_config)
+        result_event_node.start(emit_only=True)
+        result_event_node.emit("task_result_payload", {
+            "task_id": task_id,
+            "payload": result,
+        })
+        result_event_node.stop()
 
     def get_callable_name(self, func):
         """ Get callable name """
@@ -813,72 +843,108 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                 log.exception("Exception in watcher thread, continuing")
 
     def _watch_stopped_tasks(self):
+        #
+        # Wait until we have tasks to watch
+        #
         watcher_max_wait = self.node.watcher_max_wait
         self.node.have_running_tasks.wait(watcher_max_wait)
+        #
+        # Check stopped tasks with missing results
+        #
+        with self.node.lock:
+            done_tasks = []
+            #
+            for task_id, data in self.node.running_tasks.items():
+                if data["process"] is not None:
+                    continue
+                #
+                if data["result"] is not None:
+                    done_task = (task_id, data["result"])
+                    done_tasks.append(done_task)
+                    continue
+                #
+                age = (datetime.datetime.now() - data["timestamp"]).total_seconds()
+                if age < self.node.result_max_wait:
+                    continue
+                #
+                done_task = (task_id, data["result"])
+                done_tasks.append(done_task)
+        #
+        # Announce late and expired
+        #
+        for task_id, result in done_tasks:
+            self._announce_task_stopped(task_id, result)
+        #
+        # Collect sentinels of running tasks
         #
         with self.node.lock:
             sentinel_map = {}
             #
             for task_id, data in self.node.running_tasks.items():
+                if data["process"] is None:
+                    continue  # task is stopped, awaiting result
                 sentinel_map[data["process"].sentinel] = task_id
+        #
+        # Wait for tasks to stop
         #
         ready_sentinels = multiprocessing.connection.wait(
             list(sentinel_map), timeout=watcher_max_wait
         )
         #
+        # Process newly stopped tasks
+        #
         for sentinel in ready_sentinels:
             task_id = sentinel_map[sentinel]
             task_data = self.node.running_tasks[task_id]
-            task_state = self.node.global_task_state[task_id].copy()
             #
             try:
-                result = task_data["result"].get_nowait()
-            except:  # pylint: disable=W0702
-                result = None
-            #
-            if result is not None:
-                result = pickle.loads(gzip.decompress(result))
-            #
-            task_state["status"] = "stopped"
-            task_state["result"] = result
-            #
-            with self.node.lock:
-                self.node.running_tasks.pop(task_id)
-                if not self.node.running_tasks:
-                    self.node.have_running_tasks.clear()
-            #
-            try:
-                task_data["result"].close()
-            except:  # pylint: disable=W0702
-                log.exception("Failed to close result, continuing")
-            #
-            try:
+                task_data["process"].join(1)
                 task_data["process"].close()
             except:  # pylint: disable=W0702
                 log.exception("Failed to close process, continuing")
+            finally:
+                task_data["process"] = None
             #
-            self.node.event_node.emit(
-                "task_node_announce",
-                {
-                    "ident": self.node.ident,
-                    "pool": self.node.pool,
-                    "task_limit": self.node.task_limit,
-                    "running_tasks": len(self.node.running_tasks),
-                }
-            )
+            if task_data["result"] is None:
+                # Result event is not processed (or process crashed badly)
+                task_data["timestamp"] = datetime.datetime.now()
+                continue
             #
-            self.node.event_node.emit(
-                "task_state_announce",
-                task_state
-            )
-            #
-            self.node.event_node.emit(
-                "task_status_change",
-                {
-                    "task_id": task_id,
-                    "status": "stopped",
-                }
-            )
+            self._announce_task_stopped(task_id, task_data["result"])
+
+    def _announce_task_stopped(self, task_id, result):
+        task_state = self.node.global_task_state[task_id].copy()
+        #
+        task_state["status"] = "stopped"
+        task_state["result"] = result
+        #
+        with self.node.lock:
+            self.node.running_tasks.pop(task_id)
+            if not self.node.running_tasks:
+                self.node.have_running_tasks.clear()
+        #
+        self.node.event_node.emit(
+            "task_node_announce",
+            {
+                "ident": self.node.ident,
+                "pool": self.node.pool,
+                "task_limit": self.node.task_limit,
+                "running_tasks": len(self.node.running_tasks),
+            }
+        )
+        #
+        self.node.event_node.emit(
+            "task_state_announce",
+            task_state
+        )
+        #
+        self.node.event_node.emit(
+            "task_status_change",
+            {
+                "task_id": task_id,
+                "status": "stopped",
+            }
+        )
 
 
 class TaskNodeHousekeeper(threading.Thread):  # pylint: disable=R0903
