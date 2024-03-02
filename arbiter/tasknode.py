@@ -111,6 +111,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         if self.result_transport == "files":
             os.makedirs(self.tmp_path, exist_ok=True)
+        elif self.result_transport == "events":
             self.event_node.subscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.subscribe("task_node_announce", self.on_node_announce)
@@ -172,7 +173,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.event_node.unsubscribe("task_stop_request", self.on_stop_request)
         self.event_node.unsubscribe("task_state_announce", self.on_state_announce)
         #
-        if self.result_transport == "files":
+        if self.result_transport == "events":
             self.event_node.unsubscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.unsubscribe("task_state_query", self.on_state_query)
