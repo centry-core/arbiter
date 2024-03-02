@@ -966,7 +966,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                 continue
             elif self.node.result_transport == "memory":
                 try:
-                    result = task_data["result"].get_nowait()
+                    result = task_data["result"].get(timeout=self.node.result_max_wait)
                 except:  # pylint: disable=W0702
                     result = None
                 #
