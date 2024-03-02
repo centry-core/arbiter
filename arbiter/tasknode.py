@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # coding=utf-8
-# pylint: disable=C0116
+# pylint: disable=C0116,C0302
 
 #   Copyright 2023 getcarrier.io
 #
@@ -24,6 +24,7 @@
     Uses existing EventNode as a transport
 """
 
+import os
 import gzip
 import time
 import uuid
@@ -44,13 +45,14 @@ from .eventnode.tools import make_event_node
 class TaskNode:  # pylint: disable=R0902,R0904
     """ Task node - start, register, query tasks and workers """
 
-    def __init__(  # pylint: disable=R0913
+    def __init__(  # pylint: disable=R0913,R0914
             self, event_node,
             pool=None, task_limit=None, ident_prefix="",
             multiprocessing_context="spawn", kill_on_stop=False,
             task_retention_period=3600, housekeeping_interval=60,
             start_max_wait=3, query_wait=3,
             watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
+            tmp_path="/tmp/tasknode", result_transport="memory",
     ):
         self.event_node = event_node
         self.event_node_was_started = False
@@ -75,6 +77,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.kill_on_stop = kill_on_stop
         self.task_limit = task_limit
         self.task_retention_period = task_retention_period
+        #
+        self.tmp_path = tmp_path
+        self.result_transport = result_transport
         #
         self.housekeeping_interval = housekeeping_interval
         self.start_max_wait = start_max_wait
@@ -103,6 +108,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
             self.event_node_was_started = True
         #
         self.ident = f'{self.ident_prefix}{str(uuid.uuid4())}'
+        #
+        if self.result_transport == "files":
+            os.makedirs(self.tmp_path, exist_ok=True)
         #
         self.event_node.subscribe("task_node_announce", self.on_node_announce)
         self.event_node.subscribe("task_node_withhold", self.on_node_withhold)
@@ -743,6 +751,17 @@ class TaskNode:  # pylint: disable=R0902,R0904
         if kwargs is None:
             kwargs = {}
         #
+        result = None
+        if self.result_transport == "files":
+            result_config = self.tmp_path
+        elif self.result_transport == "events":
+            result_config = self.event_node.clone_config.copy()
+        elif self.result_transport == "memory":
+            result_config = multiprocessing.Queue()
+            result = result_config
+        else:
+            raise RuntimeError(f"Invalid result transport: {self.result_transport}")
+        #
         process = multiprocessing.get_context(self.multiprocessing_context).Process(
             target=self.executor,
             args=(),
@@ -752,7 +771,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "meta": meta,
                 "args": args,
                 "kwargs": kwargs,
-                "result_config": self.event_node.clone_config.copy(),
+                "result_transport": self.result_transport,
+                "result_config": result_config,
                 "multiprocessing_context": self.multiprocessing_context,
             },
             daemon=False,
@@ -762,7 +782,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         with self.lock:
             self.running_tasks[task_id] = {
                 "process": process,
-                "result": None,
+                "result": result,
             }
             self.have_running_tasks.set()
         #
@@ -777,7 +797,10 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
 
     @staticmethod
-    def executor(target, task_id, meta, args, kwargs, result_config, multiprocessing_context):  # pylint: disable=R0913,R0914
+    def executor(
+            target, task_id, meta, args, kwargs,
+            result_transport, result_config, multiprocessing_context,
+    ):  # pylint: disable=R0913,R0914
         """ Task executor """
         try:
             import setproctitle  # pylint: disable=C0415,E0401
@@ -787,7 +810,6 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 # After fork
                 import ssl  # pylint: disable=C0415
                 ssl.RAND_bytes(1)
-                import os  # pylint: disable=C0415
                 import signal  # pylint: disable=C0415
                 signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
                 # Also need to think about gevent? logging? base pylon re-init here?
@@ -810,15 +832,24 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 data, protocol=pickle.HIGHEST_PROTOCOL
             ))
             #
-            result_event_node = make_event_node(config=result_config)
-            result_event_node.start(emit_only=True)
-            result_event_node.emit("task_result_payload", {
-                "task_id": task_id,
-                "payload": result,
-            })
-            result_event_node.stop()
+            if result_transport == "files":
+                with open(os.path.join(result_config, f'{task_id}.bin'), "wb") as file:
+                    file.write(result)
             #
-            time.sleep(0.5)
+            elif result_transport == "events":
+                result_event_node = make_event_node(config=result_config)
+                result_event_node.start(emit_only=True)
+                result_event_node.emit("task_result_payload", {
+                    "task_id": task_id,
+                    "payload": result,
+                })
+                result_event_node.stop()
+            #
+            elif result_transport == "memory":
+                result_config.put(result)
+            #
+            else:
+                raise RuntimeError(f"Invalid result transport: {result_transport}")
         except:  # pylint: disable=W0702
             log.exception("Task execution failed")
             raise
@@ -848,38 +879,40 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             except:  # pylint: disable=W0702
                 log.exception("Exception in watcher thread, continuing")
 
-    def _watch_stopped_tasks(self):
+    def _watch_stopped_tasks(self):  # pylint: disable=R0912
         #
         # Wait until we have tasks to watch
         #
         watcher_max_wait = self.node.watcher_max_wait
         self.node.have_running_tasks.wait(watcher_max_wait)
         #
-        # Check stopped tasks with missing results
-        #
-        with self.node.lock:
-            done_tasks = []
+        if self.node.result_transport == "events":
             #
-            for task_id, data in self.node.running_tasks.items():
-                if data["process"] is not None:
-                    continue
+            # Check stopped tasks with missing results
+            #
+            with self.node.lock:
+                done_tasks = []
                 #
-                if data["result"] is not None:
+                for task_id, data in self.node.running_tasks.items():
+                    if data["process"] is not None:
+                        continue
+                    #
+                    if data["result"] is not None:
+                        done_task = (task_id, data["result"])
+                        done_tasks.append(done_task)
+                        continue
+                    #
+                    age = (datetime.datetime.now() - data["timestamp"]).total_seconds()
+                    if age < self.node.result_max_wait:
+                        continue
+                    #
                     done_task = (task_id, data["result"])
                     done_tasks.append(done_task)
-                    continue
-                #
-                age = (datetime.datetime.now() - data["timestamp"]).total_seconds()
-                if age < self.node.result_max_wait:
-                    continue
-                #
-                done_task = (task_id, data["result"])
-                done_tasks.append(done_task)
-        #
-        # Announce late and expired
-        #
-        for task_id, result in done_tasks:
-            self._announce_task_stopped(task_id, result)
+            #
+            # Announce late and expired
+            #
+            for task_id, result in done_tasks:
+                self._announce_task_stopped(task_id, result)
         #
         # Collect sentinels of running tasks
         #
@@ -911,10 +944,31 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             finally:
                 task_data["process"] = None
             #
-            if task_data["result"] is None:
+            if self.node.result_transport == "files":
+                try:
+                    result_path = os.path.join(self.node.tmp_path, f'{task_id}.bin')
+                    with open(result_path, "rb") as file:
+                        task_data["result"] = file.read()
+                    os.remove(result_path)
+                except:  # pylint: disable=W0702
+                    log.exception("Failed to load/remove result, continuing")
+            #
+            elif self.node.result_transport == "events" and task_data["result"] is None:
                 # Result event is not processed (or process crashed badly)
                 task_data["timestamp"] = datetime.datetime.now()
                 continue
+            elif self.node.result_transport == "memory":
+                try:
+                    result = task_data["result"].get_nowait()
+                except:  # pylint: disable=W0702
+                    result = None
+                #
+                task_data["result"] = result
+                #
+                try:
+                    task_data["result"].close()
+                except:  # pylint: disable=W0702
+                    log.exception("Failed to close result, continuing")
             #
             self._announce_task_stopped(task_id, task_data["result"])
 
