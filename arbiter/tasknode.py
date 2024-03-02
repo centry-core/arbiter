@@ -754,18 +754,20 @@ class TaskNode:  # pylint: disable=R0902,R0904
         if kwargs is None:
             kwargs = {}
         #
+        multiprocessing_ctx = multiprocessing.get_context(self.multiprocessing_context)
+        #
         result = None
         if self.result_transport == "files":
             result_config = self.tmp_path
         elif self.result_transport == "events":
             result_config = self.event_node.clone_config.copy()
         elif self.result_transport == "memory":
-            result_config = multiprocessing.Queue()
+            result_config = multiprocessing_ctx.Queue()
             result = result_config
         else:
             raise RuntimeError(f"Invalid result transport: {self.result_transport}")
         #
-        process = multiprocessing.get_context(self.multiprocessing_context).Process(
+        process = multiprocessing_ctx.Process(
             target=self.executor,
             args=(),
             kwargs={
@@ -850,6 +852,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
             #
             elif result_transport == "memory":
                 result_config.put(result)
+                result_config.close()
+                result_config.join_thread()
             #
             else:
                 raise RuntimeError(f"Invalid result transport: {result_transport}")
