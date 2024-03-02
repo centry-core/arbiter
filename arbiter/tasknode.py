@@ -111,6 +111,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         if self.result_transport == "files":
             os.makedirs(self.tmp_path, exist_ok=True)
+            self.event_node.subscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.subscribe("task_node_announce", self.on_node_announce)
         self.event_node.subscribe("task_node_withhold", self.on_node_withhold)
@@ -122,7 +123,6 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.event_node.subscribe("task_stop_request", self.on_stop_request)
         self.event_node.subscribe("task_state_announce", self.on_state_announce)
-        self.event_node.subscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.subscribe("task_state_query", self.on_state_query)
         self.event_node.subscribe("task_state_reply", self.on_state_reply)
@@ -171,7 +171,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.event_node.unsubscribe("task_stop_request", self.on_stop_request)
         self.event_node.unsubscribe("task_state_announce", self.on_state_announce)
-        self.event_node.unsubscribe("task_result_payload", self.on_result_payload)
+        #
+        if self.result_transport == "files":
+            self.event_node.unsubscribe("task_result_payload", self.on_result_payload)
         #
         self.event_node.unsubscribe("task_state_query", self.on_state_query)
         self.event_node.unsubscribe("task_state_reply", self.on_state_reply)
@@ -879,7 +881,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             except:  # pylint: disable=W0702
                 log.exception("Exception in watcher thread, continuing")
 
-    def _watch_stopped_tasks(self):  # pylint: disable=R0912
+    def _watch_stopped_tasks(self):  # pylint: disable=R0912,R0915
         #
         # Wait until we have tasks to watch
         #
@@ -963,12 +965,12 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                 except:  # pylint: disable=W0702
                     result = None
                 #
-                task_data["result"] = result
-                #
                 try:
                     task_data["result"].close()
                 except:  # pylint: disable=W0702
                     log.exception("Failed to close result, continuing")
+                #
+                task_data["result"] = result
             #
             self._announce_task_stopped(task_id, task_data["result"])
 
