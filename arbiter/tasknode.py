@@ -808,20 +808,21 @@ class TaskNode:  # pylint: disable=R0902,R0904
     ):  # pylint: disable=R0913,R0914
         """ Task executor """
         try:
-            import setproctitle  # pylint: disable=C0415,E0401
-            setproctitle.setproctitle(f'tasknode_task {task_id}')
-            #
             if multiprocessing_context == "fork":
-                # After fork
-                import ssl  # pylint: disable=C0415
-                ssl.RAND_bytes(1)
-                import signal  # pylint: disable=C0415
-                for sig in [signal.SIGTERM, signal.SIGINT]:
-                    signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
                 # Clear TaskNode->EventNode events. Do not attempt to close connections
                 self.event_node.event_callbacks = {}
                 self.event_node.catch_all_callbacks = []
+                # Re-init for SSL
+                import ssl  # pylint: disable=C0415
+                ssl.RAND_bytes(1)
+                # Signals
+                import signal  # pylint: disable=C0415
+                for sig in [signal.SIGTERM, signal.SIGINT]:
+                    signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
                 # Also need to think about gevent? Logging? Base pylon re-init here?
+            #
+            import setproctitle  # pylint: disable=C0415,E0401
+            setproctitle.setproctitle(f'tasknode_task {task_id}')
             #
             import sys  # pylint: disable=C0415
             import types  # pylint: disable=C0415
