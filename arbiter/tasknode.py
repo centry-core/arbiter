@@ -801,8 +801,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
             }
         )
 
-    @staticmethod
     def executor(
+            self,
             target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
     ):  # pylint: disable=R0913,R0914
@@ -816,8 +816,12 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 import ssl  # pylint: disable=C0415
                 ssl.RAND_bytes(1)
                 import signal  # pylint: disable=C0415
-                signal.signal(signal.SIGTERM, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
-                # Also need to think about gevent? logging? base pylon re-init here?
+                for sig in [signal.SIGTERM, signal.SIGINT]:
+                    signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
+                # Clear TaskNode->EventNode events. Do not attempt to close connections
+                self.event_node.event_callbacks = {}
+                self.event_node.catch_all_callbacks = []
+                # Also need to think about gevent? Logging? Base pylon re-init here?
             #
             import sys  # pylint: disable=C0415
             import types  # pylint: disable=C0415
@@ -859,7 +863,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 raise RuntimeError(f"Invalid result transport: {result_transport}")
         except:  # pylint: disable=W0702
             log.exception("Task execution failed")
+            #
+            if multiprocessing_context == "fork":
+                os._exit(1)
+            #
             raise
+        #
+        if multiprocessing_context == "fork":
+            os._exit(0)
 
     def get_callable_name(self, func):
         """ Get callable name """
