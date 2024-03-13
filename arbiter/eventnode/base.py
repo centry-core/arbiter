@@ -62,6 +62,7 @@ class EventNodeBase:  # pylint: disable=R0902
             )
         #
         self.ready_event = threading.Event()
+        self.can_emit = True
         self.started = False
 
     def clone(self):
@@ -124,6 +125,9 @@ class EventNodeBase:  # pylint: disable=R0902
 
     def emit(self, event_name, payload=None):
         """ Emit event with payload data """
+        if not self.can_emit:
+            return
+        #
         data = self.make_event_data(event_name, payload)
         self.emit_data(data)
 

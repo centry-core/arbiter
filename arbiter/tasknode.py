@@ -809,9 +809,11 @@ class TaskNode:  # pylint: disable=R0902,R0904
         """ Task executor """
         try:
             if multiprocessing_context == "fork":
-                # Clear TaskNode->EventNode events. Do not attempt to close connections
+                # Clear TaskNode->EventNode. Do not attempt to close connections
+                self.event_node.can_emit = False
                 self.event_node.event_callbacks = {}
                 self.event_node.catch_all_callbacks = []
+                self.running_tasks = {}
                 # Re-init for SSL
                 import ssl  # pylint: disable=C0415
                 ssl.RAND_bytes(1)
@@ -953,7 +955,10 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
         #
         for sentinel in ready_sentinels:
             task_id = sentinel_map[sentinel]
-            task_data = self.node.running_tasks[task_id]
+            task_data = self.node.running_tasks.get(task_id, None)
+            #
+            if task_data is None:
+                continue
             #
             try:
                 task_data["process"].join(1)
@@ -998,7 +1003,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
         task_state["result"] = result
         #
         with self.node.lock:
-            self.node.running_tasks.pop(task_id)
+            self.node.running_tasks.pop(task_id, None)
             if not self.node.running_tasks:
                 self.node.have_running_tasks.clear()
         #
