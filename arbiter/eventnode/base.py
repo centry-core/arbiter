@@ -156,7 +156,7 @@ class EventNodeBase:  # pylint: disable=R0902
         """ Listening thread: push event data to sync_queue """
         raise NotImplementedError
 
-    def callback_worker(self):
+    def callback_worker(self):  # pylint: disable=R0912
         """ Callback thread: call subscribers """
         while self.running:
             try:
@@ -189,9 +189,17 @@ class EventNodeBase:  # pylint: disable=R0902
                 for callback in callbacks:
                     try:
                         callback(event_name, event_payload)
+                    except SystemExit:
+                        if self.log_errors:
+                            log.exception("Event callback got SystemExit, re-raising")
+                        raise
                     except:  # pylint: disable=W0702
                         if self.log_errors:
                             log.exception("Event callback failed, skipping")
+            except SystemExit:
+                if self.log_errors:
+                    log.exception("Event processing got SystemExit, re-raising")
+                raise
             except:  # pylint: disable=W0702
                 if self.log_errors:
                     log.exception("Error during event processing, skipping")
