@@ -35,7 +35,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             self, host, port, password, event_queue="events",
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             mute_first_failed_connections=0,
-            use_ssl=False,
+            use_ssl=False, ssl_verify=False,
             log_errors=True,
     ):  # pylint: disable=R0913
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
@@ -51,6 +51,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "callback_workers": callback_workers,
             "mute_first_failed_connections": mute_first_failed_connections,
             "use_ssl": use_ssl,
+            "ssl_verify": ssl_verify,
             "log_errors": log_errors,
         }
         #
@@ -62,6 +63,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         }
         #
         self.use_ssl = use_ssl
+        self.ssl_verify = ssl_verify
         #
         self.retry_interval = 3.0
         #
@@ -124,6 +126,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                     port=self.redis_config.get("port", 6379),
                     password=self.redis_config.get("password", None),
                     ssl=self.use_ssl,
+                    ssl_cert_reqs="required" if self.ssl_verify else "none",
                 )
                 #
                 return redis
