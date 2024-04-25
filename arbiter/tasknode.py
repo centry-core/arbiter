@@ -48,7 +48,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
     def __init__(  # pylint: disable=R0913,R0914
             self, event_node,
             pool=None, task_limit=None, ident_prefix="",
-            multiprocessing_context="spawn", kill_on_stop=False,
+            multiprocessing_context="fork", kill_on_stop=False,
             task_retention_period=3600, housekeeping_interval=60,
             start_max_wait=3, query_wait=3,
             watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
