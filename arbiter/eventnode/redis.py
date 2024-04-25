@@ -37,6 +37,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             mute_first_failed_connections=0,
             use_ssl=False, ssl_verify=False,
             log_errors=True,
+            retry_interval=3.0,
     ):  # pylint: disable=R0913
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
@@ -53,6 +54,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "use_ssl": use_ssl,
             "ssl_verify": ssl_verify,
             "log_errors": log_errors,
+            "retry_interval": retry_interval,
         }
         #
         self.redis_config = {
@@ -65,7 +67,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         self.use_ssl = use_ssl
         self.ssl_verify = ssl_verify
         #
-        self.retry_interval = 3.0
+        self.retry_interval = retry_interval
         #
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0
@@ -111,10 +113,16 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                     log.exception(
                         "Exception in listening thread. Retrying in %s seconds", self.retry_interval
                     )
+                #
+                try:
+                    pubsub.close()
+                except:  # pylint: disable=W0702
+                    pass
+                #
                 time.sleep(self.retry_interval)
             finally:
                 try:
-                    pass  # TODO: handle redis errors
+                    pubsub.close()  # TODO: handle redis errors
                 except:  # pylint: disable=W0702
                     pass
 
@@ -127,6 +135,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                     password=self.redis_config.get("password", None),
                     ssl=self.use_ssl,
                     ssl_cert_reqs="required" if self.ssl_verify else "none",
+                    health_check_interval=10,
                 )
                 #
                 return redis

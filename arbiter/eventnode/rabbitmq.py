@@ -40,6 +40,7 @@ class EventNode(EventNodeBase):  # pylint: disable=R0902
             mute_first_failed_connections=0,
             use_ssl=False, ssl_verify=False,
             log_errors=True,
+            retry_interval=3.0,
     ):  # pylint: disable=R0913,R0914
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
@@ -60,6 +61,7 @@ class EventNode(EventNodeBase):  # pylint: disable=R0902
             "use_ssl": use_ssl,
             "ssl_verify": ssl_verify,
             "log_errors": log_errors,
+            "retry_interval": retry_interval,
         }
         #
         self.queue_config = Config(host, port, user, password, vhost, event_queue, all_queue=None)
@@ -78,7 +80,7 @@ class EventNode(EventNodeBase):  # pylint: disable=R0902
                 self.ssl_context.verify_mode = ssl.CERT_NONE
             self.ssl_server_hostname = host
         #
-        self.retry_interval = 3.0
+        self.retry_interval = retry_interval
         #
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0

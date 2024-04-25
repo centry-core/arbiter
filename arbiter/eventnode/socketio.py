@@ -37,6 +37,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
             mute_first_failed_connections=0,
             ssl_verify=False, socketio_path="socket.io",
             log_errors=True,
+            retry_interval=3.0,
     ):  # pylint: disable=R0913
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
@@ -52,6 +53,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
             "ssl_verify": ssl_verify,
             "socketio_path": socketio_path,
             "log_errors": log_errors,
+            "retry_interval": retry_interval,
         }
         #
         self.sio_config = {
@@ -62,7 +64,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
             "socketio_path": socketio_path,
         }
         #
-        self.retry_interval = 3.0
+        self.retry_interval = retry_interval
         #
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0

@@ -53,6 +53,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             start_max_wait=3, query_wait=3,
             watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
             tmp_path="/tmp/tasknode", result_transport="memory",
+            start_attempts=3,
     ):
         self.event_node = event_node
         self.event_node_was_started = False
@@ -87,6 +88,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.watcher_max_wait = watcher_max_wait
         self.stop_node_task_wait = stop_node_task_wait
         self.result_max_wait = result_max_wait
+        #
+        self.start_attempts = start_attempts
         #
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -221,6 +224,15 @@ class TaskNode:  # pylint: disable=R0902,R0904
 
     def start_task(self, name, args=None, kwargs=None, pool=None, meta=None):  # pylint: disable=R0913
         """ Start task execution """
+        for _ in range(self.start_attempts):
+            task_id = self.start_task_attempt(name, args, kwargs, pool, meta)
+            if task_id is not None:
+                return task_id
+        #
+        return None
+
+    def start_task_attempt(self, name, args=None, kwargs=None, pool=None, meta=None):  # pylint: disable=R0913
+        """ Try to start task execution """
         if meta is not None and not isinstance(meta, dict):
             raise ValueError("Meta must be None or dict")
         #
