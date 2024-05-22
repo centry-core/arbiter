@@ -885,6 +885,23 @@ class TaskNode:  # pylint: disable=R0902,R0904
             raise
         #
         if multiprocessing_context == "fork":
+            # Reap zombies
+            while True:
+                try:
+                    child_siginfo = os.waitid(os.P_ALL, None, os.WEXITED | os.WNOHANG)  # pylint: disable=E1101
+                    #
+                    if child_siginfo is None:
+                        break
+                    #
+                    log.info(
+                        "Reaped child: %s -> %s -> %s",
+                        child_siginfo.si_pid,
+                        child_siginfo.si_code,
+                        child_siginfo.si_status,
+                    )
+                except:  # pylint: disable=W0702
+                    break
+            # Exit this process
             os._exit(0)
 
     def get_callable_name(self, func):
