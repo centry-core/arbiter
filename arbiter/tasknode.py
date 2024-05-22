@@ -888,7 +888,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             # Reap zombies
             while True:
                 try:
-                    child_siginfo = os.waitid(os.P_ALL, None, os.WEXITED | os.WNOHANG)  # pylint: disable=E1101
+                    child_siginfo = os.waitid(os.P_ALL, os.getpid(), os.WEXITED | os.WNOHANG)  # pylint: disable=E1101
                     #
                     if child_siginfo is None:
                         break
