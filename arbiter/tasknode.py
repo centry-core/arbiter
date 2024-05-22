@@ -796,6 +796,16 @@ class TaskNode:  # pylint: disable=R0902,R0904
         )
         process.start()
         #
+        process_pid = process.pid
+        if process_pid is not None:
+            try:
+                import pylon  # pylint: disable=C0415,E0401,W0611
+                from tools import context  # pylint: disable=C0415,E0401
+                #
+                context.zombie_reaper.external_pids.add(process_pid)
+            except:  # pylint: disable=W0702
+                pass
+        #
         with self.lock:
             self.running_tasks[task_id] = {
                 "process": process,
