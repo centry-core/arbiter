@@ -999,6 +999,16 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             if task_data is None:
                 continue
             #
+            process_pid = task_data["process"].pid
+            if process_pid is not None:
+                try:
+                    import pylon  # pylint: disable=C0415,E0401,W0611
+                    from tools import context  # pylint: disable=C0415,E0401
+                    #
+                    context.zombie_reaper.external_pids.discard(process_pid)
+                except:  # pylint: disable=W0702
+                    pass
+            #
             try:
                 task_data["process"].join(1)
                 task_data["process"].close()
