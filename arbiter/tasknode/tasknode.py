@@ -29,6 +29,7 @@ import gzip
 import time
 import uuid
 import queue
+import ctypes
 import pickle
 import datetime
 import threading
@@ -39,7 +40,11 @@ import multiprocessing.connection
 
 from arbiter import log
 
-from .eventnode.tools import make_event_node
+from ..eventnode.tools import make_event_node
+from .housekeeper import TaskNodeHousekeeper
+from .watcher import TaskNodeWatcher
+from .tools import InterruptTaskThread
+from .tools import reap_zombies
 
 
 class TaskNode:  # pylint: disable=R0902,R0904
@@ -53,7 +58,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             start_max_wait=3, query_wait=3,
             watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
             tmp_path="/tmp/tasknode", result_transport="memory",
-            start_attempts=3,
+            start_attempts=3, thread_scan_interval=1,
     ):
         self.event_node = event_node
         self.event_node_was_started = False
@@ -90,6 +95,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.result_max_wait = result_max_wait
         #
         self.start_attempts = start_attempts
+        self.thread_scan_interval = thread_scan_interval
         #
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -405,7 +411,12 @@ class TaskNode:  # pylint: disable=R0902,R0904
             return result["return"]
         #
         if "raise" in result:
-            raise Exception("\n".join(["", result["raise"]]))  # pylint: disable=W0719
+            exception_data = "\n".join(["", result["raise"]])
+            #
+            if exception_data.rstrip().endswith("arbiter.tasknode.tools.InterruptTaskThread"):
+                return ...  # task was stopped by stop_task
+            #
+            raise Exception(exception_data)  # pylint: disable=E0012,W0719
         #
         return ...  # invalid result
 
@@ -502,6 +513,29 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         task_id = event_payload.get("task_id")
         #
+        if self.multiprocessing_context in ["threading"]:
+            self._stop_task__threading(task_id)
+        else:
+            self._stop_task__multiprocessing(task_id)
+
+    def _stop_task__threading(self, task_id):
+        if task_id not in self.running_tasks:
+            return
+        #
+        with self.lock:
+            data = self.running_tasks.get(task_id, {})
+            thread = data.get("thread", None)
+        #
+        if thread is not None:
+            # Note: this way will not stop running blocking system calls (e.g. sleep())
+            # May try to use pthread_kill to interrupt if possible in the future
+            # Also can do some error checks (e.g. if exception was set to multiple threads)
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(thread.ident),
+                ctypes.py_object(InterruptTaskThread),
+            )
+
+    def _stop_task__multiprocessing(self, task_id):
         if task_id not in self.running_tasks:
             return
         #
@@ -756,6 +790,74 @@ class TaskNode:  # pylint: disable=R0902,R0904
 
     def execute_local_task(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
         """ Start task from task registry """
+        if self.multiprocessing_context in ["threading"]:
+            self._execute_local_task__threading(task_id, name, meta, args, kwargs)
+        else:
+            self._execute_local_task__multiprocessing(task_id, name, meta, args, kwargs)
+
+    def _execute_local_task__threading(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
+        if name not in self.task_registry:
+            raise RuntimeError("Task not found")
+        #
+        if meta is None:
+            meta = {}
+        if args is None:
+            args = ()
+        if kwargs is None:
+            kwargs = {}
+        #
+        result = None
+        if self.result_transport == "files":
+            result_config = self.tmp_path
+        elif self.result_transport == "events":
+            result_config = self.event_node.clone_config.copy()
+        elif self.result_transport == "memory":
+            result_config = queue.Queue()
+            result = result_config
+        else:
+            raise RuntimeError(f"Invalid result transport: {self.result_transport}")
+        #
+        with self.lock:
+            import sys  # pylint: disable=C0415
+            if "tasknode_task" not in sys.modules:
+                sys.modules["tasknode_task"] = threading.local()
+        #
+        thread = threading.Thread(
+            target=self.executor,
+            name=f'tasknode_task {task_id}',
+            args=(),
+            kwargs={
+                "target": self.task_registry[name],
+                "task_id": task_id,
+                "meta": meta,
+                "args": args,
+                "kwargs": kwargs,
+                "result_transport": self.result_transport,
+                "result_config": result_config,
+                "multiprocessing_context": self.multiprocessing_context,
+            },
+            daemon=True,
+        )
+        thread.start()
+        #
+        with self.lock:
+            self.running_tasks[task_id] = {
+                "thread": thread,
+                "result": result,
+            }
+            self.have_running_tasks.set()
+        #
+        self.event_node.emit(
+            "task_node_announce",
+            {
+                "ident": self.ident,
+                "pool": self.pool,
+                "task_limit": self.task_limit,
+                "running_tasks": len(self.running_tasks),
+            }
+        )
+
+    def _execute_local_task__multiprocessing(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
         if name not in self.task_registry:
             raise RuntimeError("Task not found")
         #
@@ -829,6 +931,71 @@ class TaskNode:  # pylint: disable=R0902,R0904
             result_transport, result_config, multiprocessing_context,
     ):  # pylint: disable=R0913,R0914
         """ Task executor """
+        if multiprocessing_context in ["threading"]:
+            self._executor__threading(
+                target, task_id, meta, args, kwargs,
+                result_transport, result_config, multiprocessing_context,
+            )
+        else:
+            self._executor__multiprocessing(
+                target, task_id, meta, args, kwargs,
+                result_transport, result_config, multiprocessing_context,
+            )
+
+    def _executor__threading(
+            self,
+            target, task_id, meta, args, kwargs,
+            result_transport, result_config, multiprocessing_context,
+    ):  # pylint: disable=R0913,R0914,R0201
+        _ = multiprocessing_context
+        #
+        try:
+            import setproctitle  # pylint: disable=C0415,E0401
+            setproctitle.setthreadtitle(f'tasknode_task {task_id}')
+            #
+            import sys  # pylint: disable=C0415
+            sys.modules["tasknode_task"].id = task_id
+            sys.modules["tasknode_task"].meta = meta.copy()
+            #
+            try:
+                output = target(*args, **kwargs)
+                data = {"return": output}
+            except:  # pylint: disable=W0702
+                error = traceback.format_exc()
+                data = {"raise": error}
+            #
+            result = gzip.compress(pickle.dumps(
+                data, protocol=pickle.HIGHEST_PROTOCOL
+            ))
+            #
+            if result_transport == "files":
+                with open(os.path.join(result_config, f'{task_id}.bin'), "wb") as file:
+                    file.write(result)
+            #
+            elif result_transport == "events":
+                result_event_node = make_event_node(config=result_config)
+                result_event_node.start(emit_only=True)
+                result_event_node.emit("task_result_payload", {
+                    "task_id": task_id,
+                    "payload": result,
+                })
+                result_event_node.stop()
+            #
+            elif result_transport == "memory":
+                result_config.put(result)
+            #
+            else:
+                raise RuntimeError(f"Invalid result transport: {result_transport}")
+        except:  # pylint: disable=W0702
+            log.exception("Task execution failed")
+            #
+            raise
+
+    def _executor__multiprocessing(
+            self,
+            target, task_id, meta, args, kwargs,
+            result_transport, result_config, multiprocessing_context,
+    ):  # pylint: disable=R0913,R0914
         try:
             if multiprocessing_context == "fork":
                 # Clear TaskNode->EventNode. Do not attempt to close connections
@@ -890,29 +1057,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
             log.exception("Task execution failed")
             #
             if multiprocessing_context == "fork":
-                os._exit(1)
+                reap_zombies()
+                os._exit(1)  # pylint: disable=W0212
             #
             raise
         #
         if multiprocessing_context == "fork":
-            # Reap zombies
-            while True:
-                try:
-                    child_siginfo = os.waitid(os.P_ALL, os.getpid(), os.WEXITED | os.WNOHANG)  # pylint: disable=E1101
-                    #
-                    if child_siginfo is None:
-                        break
-                    #
-                    log.info(
-                        "Reaped child: %s -> %s -> %s",
-                        child_siginfo.si_pid,
-                        child_siginfo.si_code,
-                        child_siginfo.si_status,
-                    )
-                except:  # pylint: disable=W0702
-                    break
-            # Exit this process
-            os._exit(0)
+            reap_zombies()
+            os._exit(0)  # pylint: disable=W0212
 
     def get_callable_name(self, func):
         """ Get callable name """
@@ -921,197 +1073,3 @@ class TaskNode:  # pylint: disable=R0902,R0904
         if isinstance(func, functools.partial):
             return self.get_callable_name(func.func)
         raise ValueError("Cannot guess callable name")
-
-
-class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
-    """ Watch running tasks """
-
-    def __init__(self, node):
-        super().__init__(daemon=True)
-        self.node = node
-
-    def run(self):
-        """ Run watcher thread """
-        #
-        while not self.node.stop_event.is_set():
-            try:
-                self._watch_stopped_tasks()
-            except:  # pylint: disable=W0702
-                log.exception("Exception in watcher thread, continuing")
-
-    def _watch_stopped_tasks(self):  # pylint: disable=R0912,R0915
-        #
-        # Wait until we have tasks to watch
-        #
-        watcher_max_wait = self.node.watcher_max_wait
-        self.node.have_running_tasks.wait(watcher_max_wait)
-        #
-        if self.node.result_transport == "events":
-            #
-            # Check stopped tasks with missing results
-            #
-            with self.node.lock:
-                done_tasks = []
-                #
-                for task_id, data in self.node.running_tasks.items():
-                    if data["process"] is not None:
-                        continue
-                    #
-                    if data["result"] is not None:
-                        done_task = (task_id, data["result"])
-                        done_tasks.append(done_task)
-                        continue
-                    #
-                    age = (datetime.datetime.now() - data["timestamp"]).total_seconds()
-                    if age < self.node.result_max_wait:
-                        continue
-                    #
-                    done_task = (task_id, data["result"])
-                    done_tasks.append(done_task)
-            #
-            # Announce late and expired
-            #
-            for task_id, result in done_tasks:
-                self._announce_task_stopped(task_id, result)
-        #
-        # Collect sentinels of running tasks
-        #
-        with self.node.lock:
-            sentinel_map = {}
-            #
-            for task_id, data in self.node.running_tasks.items():
-                if data["process"] is None:
-                    continue  # task is stopped, awaiting result
-                sentinel_map[data["process"].sentinel] = task_id
-        #
-        # Wait for tasks to stop
-        #
-        ready_sentinels = multiprocessing.connection.wait(
-            list(sentinel_map), timeout=watcher_max_wait
-        )
-        #
-        # Process newly stopped tasks
-        #
-        for sentinel in ready_sentinels:
-            task_id = sentinel_map[sentinel]
-            task_data = self.node.running_tasks.get(task_id, None)
-            #
-            if task_data is None:
-                continue
-            #
-            process_pid = task_data["process"].pid
-            if process_pid is not None:
-                try:
-                    import pylon  # pylint: disable=C0415,E0401,W0611
-                    from tools import context  # pylint: disable=C0415,E0401
-                    #
-                    context.zombie_reaper.external_pids.discard(process_pid)
-                except:  # pylint: disable=W0702
-                    pass
-            #
-            try:
-                task_data["process"].join(1)
-                task_data["process"].close()
-            except:  # pylint: disable=W0702
-                log.exception("Failed to close process, continuing")
-            finally:
-                task_data["process"] = None
-            #
-            if self.node.result_transport == "files":
-                try:
-                    result_path = os.path.join(self.node.tmp_path, f'{task_id}.bin')
-                    with open(result_path, "rb") as file:
-                        task_data["result"] = file.read()
-                    os.remove(result_path)
-                except:  # pylint: disable=W0702
-                    log.exception("Failed to load/remove result, continuing")
-            #
-            elif self.node.result_transport == "events" and task_data["result"] is None:
-                # Result event is not processed (or process crashed badly)
-                task_data["timestamp"] = datetime.datetime.now()
-                continue
-            elif self.node.result_transport == "memory":
-                try:
-                    result = task_data["result"].get(timeout=self.node.result_max_wait)
-                except:  # pylint: disable=W0702
-                    result = None
-                #
-                try:
-                    task_data["result"].close()
-                except:  # pylint: disable=W0702
-                    log.exception("Failed to close result, continuing")
-                #
-                task_data["result"] = result
-            #
-            self._announce_task_stopped(task_id, task_data["result"])
-
-    def _announce_task_stopped(self, task_id, result):
-        task_state = self.node.global_task_state[task_id].copy()
-        #
-        task_state["status"] = "stopped"
-        task_state["result"] = result
-        #
-        with self.node.lock:
-            self.node.running_tasks.pop(task_id, None)
-            if not self.node.running_tasks:
-                self.node.have_running_tasks.clear()
-        #
-        self.node.event_node.emit(
-            "task_node_announce",
-            {
-                "ident": self.node.ident,
-                "pool": self.node.pool,
-                "task_limit": self.node.task_limit,
-                "running_tasks": len(self.node.running_tasks),
-            }
-        )
-        #
-        self.node.event_node.emit(
-            "task_state_announce",
-            task_state
-        )
-        #
-        self.node.event_node.emit(
-            "task_status_change",
-            {
-                "task_id": task_id,
-                "status": "stopped",
-            }
-        )
-
-
-class TaskNodeHousekeeper(threading.Thread):  # pylint: disable=R0903
-    """ Perform cleanup """
-
-    def __init__(self, node):
-        super().__init__(daemon=True)
-        self.node = node
-
-    def run(self):
-        """ Run housekeeper thread """
-        while not self.node.stop_event.is_set():
-            time.sleep(self.node.housekeeping_interval)
-            #
-            with self.node.lock:
-                for task_id in list(self.node.state_events):
-                    data = self.node.state_events[task_id]
-                    #
-                    if not data["event"].is_set():
-                        continue
-                    #
-                    age = (datetime.datetime.now() - data["timestamp"]).total_seconds()
-                    #
-                    if age < self.node.task_retention_period:
-                        continue
-                    #
-                    self.node.state_events.pop(task_id, None)
-                    self.node.global_task_state.pop(task_id, None)
-                    self.node.known_task_ids.discard(task_id)
-                    #
-                    self.node.event_node.emit(
-                        "task_status_change",
-                        {
-                            "task_id": task_id,
-                            "status": "pruned",
-                        }
-                    )

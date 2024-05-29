@@ -4,7 +4,10 @@ from time import sleep
 import logging
 
 event_node = RedisEventNode(host="localhost", port=6379, password="", event_queue="tasks")
+
 app = Minion(event_node, queue="default")
+app.raw_task_node.multiprocessing_context = "threading"
+app.raw_task_node.result_transport = "memory"
 
 
 @app.task(name="add")
@@ -35,7 +38,8 @@ def addp(x, y, upstream=0):
 
 @app.task(name="long_running")
 def long_task():
-    sleep(180)
+    for _ in range(180):
+        sleep(1)
     return "Long Task"
 
 
