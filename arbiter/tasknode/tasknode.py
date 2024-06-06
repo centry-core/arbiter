@@ -827,6 +827,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             name=f'tasknode_task {task_id}',
             args=(),
             kwargs={
+                "name": name,
                 "target": self.task_registry[name],
                 "task_id": task_id,
                 "meta": meta,
@@ -885,6 +886,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             target=self.executor,
             args=(),
             kwargs={
+                "name": name,
                 "target": self.task_registry[name],
                 "task_id": task_id,
                 "meta": meta,
@@ -927,26 +929,26 @@ class TaskNode:  # pylint: disable=R0902,R0904
 
     def executor(
             self,
-            target, task_id, meta, args, kwargs,
+            name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
     ):  # pylint: disable=R0913,R0914
         """ Task executor """
         if multiprocessing_context in ["threading"]:
             self._executor__threading(
-                target, task_id, meta, args, kwargs,
+                name, target, task_id, meta, args, kwargs,
                 result_transport, result_config, multiprocessing_context,
             )
         else:
             self._executor__multiprocessing(
-                target, task_id, meta, args, kwargs,
+                name, target, task_id, meta, args, kwargs,
                 result_transport, result_config, multiprocessing_context,
             )
 
     def _executor__threading(
             self,
-            target, task_id, meta, args, kwargs,
+            name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
-    ):  # pylint: disable=R0913,R0914,R0201
+    ):  # pylint: disable=R0913,R0914
         _ = multiprocessing_context
         #
         try:
@@ -956,6 +958,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             import sys  # pylint: disable=C0415
             sys.modules["tasknode_task"].id = task_id
             sys.modules["tasknode_task"].meta = meta.copy()
+            sys.modules["tasknode_task"].name = name
             #
             try:
                 output = target(*args, **kwargs)
@@ -993,7 +996,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
 
     def _executor__multiprocessing(
             self,
-            target, task_id, meta, args, kwargs,
+            name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
     ):  # pylint: disable=R0913,R0914
         try:
@@ -1021,6 +1024,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             sys.modules["tasknode_task"].__path__ = []
             setattr(sys.modules["tasknode_task"], "id", task_id)
             setattr(sys.modules["tasknode_task"], "meta", meta.copy())
+            setattr(sys.modules["tasknode_task"], "name", name)
             #
             try:
                 output = target(*args, **kwargs)
