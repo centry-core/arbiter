@@ -70,6 +70,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.sync_queues = {}
         self.task_registry = {}
         self.running_tasks = {}
+        self.local_tasks = {}
         #
         self.global_pool_state = {}
         self.global_task_state = {}
@@ -228,16 +229,16 @@ class TaskNode:  # pylint: disable=R0902,R0904
     # Task start and stop
     #
 
-    def start_task(self, name, args=None, kwargs=None, pool=None, meta=None):  # pylint: disable=R0913
+    def start_task(self, name, args=None, kwargs=None, pool=None, meta=None, durable=False):  # pylint: disable=R0913
         """ Start task execution """
         for _ in range(self.start_attempts):
-            task_id = self.start_task_attempt(name, args, kwargs, pool, meta)
+            task_id = self.start_task_attempt(name, args, kwargs, pool, meta, durable)
             if task_id is not None:
                 return task_id
         #
         return None
 
-    def start_task_attempt(self, name, args=None, kwargs=None, pool=None, meta=None):  # pylint: disable=R0913
+    def start_task_attempt(self, name, args=None, kwargs=None, pool=None, meta=None, durable=False):  # pylint: disable=R0913
         """ Try to start task execution """
         if meta is not None and not isinstance(meta, dict):
             raise ValueError("Meta must be None or dict")
@@ -294,6 +295,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                             "meta": meta,
                             "args": args,
                             "kwargs": kwargs,
+                            "durable": durable,
                             "pool": pool,
                             "task_id": task_id,
                             "runner": candidate.get("ident"),
@@ -767,7 +769,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
             event_payload.get("name", None),
             event_payload.get("meta", None),
             event_payload.get("args", None),
-            event_payload.get("kwargs", None)
+            event_payload.get("kwargs", None),
+            event_payload.get("durable", False),
         )
 
     #
@@ -788,8 +791,17 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         return task_id
 
-    def execute_local_task(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
+    def execute_local_task(self, task_id, name, meta, args=None, kwargs=None, durable=False):  # pylint: disable=R0913
         """ Start task from task registry """
+        with self.lock:
+            self.local_tasks[task_id] = {
+                "name": name,
+                "meta": meta,
+                "args": args,
+                "kwargs": kwargs,
+                "durable": durable,
+            }
+        #
         if self.multiprocessing_context in ["threading"]:
             self._execute_local_task__threading(task_id, name, meta, args, kwargs)
         else:

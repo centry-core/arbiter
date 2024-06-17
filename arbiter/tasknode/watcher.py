@@ -113,6 +113,26 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             finally:
                 task_data["thread"] = None
             #
+            task_payload = self.node.local_tasks.get(task_id, None)
+            #
+            if task_payload is None:
+                task_payload = {
+                    "durable": False,
+                }
+            #
+            if task_payload.get("durable", False):
+                # Task is durable, restart it
+                self.node.execute_local_task(
+                    task_id,
+                    name=task_payload.get("name"),
+                    meta=task_payload.get("meta"),
+                    args=task_payload.get("args"),
+                    kwargs=task_payload.get("kwargs"),
+                    durable=task_payload.get("durable"),
+                )
+                #
+                continue
+            #
             if self.node.result_transport == "files":
                 try:
                     result_path = os.path.join(self.node.tmp_path, f'{task_id}.bin')
@@ -214,6 +234,26 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             finally:
                 task_data["process"] = None
             #
+            task_payload = self.node.local_tasks.get(task_id, None)
+            #
+            if task_payload is None:
+                task_payload = {
+                    "durable": False,
+                }
+            #
+            if task_payload.get("durable", False):
+                # Task is durable, restart it
+                self.node.execute_local_task(
+                    task_id,
+                    name=task_payload.get("name"),
+                    meta=task_payload.get("meta"),
+                    args=task_payload.get("args"),
+                    kwargs=task_payload.get("kwargs"),
+                    durable=task_payload.get("durable"),
+                )
+                #
+                continue
+            #
             if self.node.result_transport == "files":
                 try:
                     result_path = os.path.join(self.node.tmp_path, f'{task_id}.bin')
@@ -249,6 +289,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
         task_state["result"] = result
         #
         with self.node.lock:
+            self.node.local_tasks.pop(task_id, None)
             self.node.running_tasks.pop(task_id, None)
             if not self.node.running_tasks:
                 self.node.have_running_tasks.clear()
