@@ -515,6 +515,10 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         task_id = event_payload.get("task_id")
         #
+        with self.lock:
+            if task_id in self.local_tasks:
+                self.local_tasks[task_id]["durable"] = False
+        #
         if self.multiprocessing_context in ["threading"]:
             self._stop_task__threading(task_id)
         else:
