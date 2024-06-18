@@ -775,6 +775,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             event_payload.get("args", None),
             event_payload.get("kwargs", None),
             event_payload.get("durable", False),
+            event_payload.get("pool", None),
         )
 
     #
@@ -795,7 +796,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         return task_id
 
-    def execute_local_task(self, task_id, name, meta, args=None, kwargs=None, durable=False):  # pylint: disable=R0913
+    def execute_local_task(  # pylint: disable=R0913
+            self, task_id, name, meta, args=None, kwargs=None, durable=False, pool=None,
+        ):
         """ Start task from task registry """
         with self.lock:
             self.local_tasks[task_id] = {
@@ -804,14 +807,17 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "args": args,
                 "kwargs": kwargs,
                 "durable": durable,
+                "pool": pool,
             }
         #
         if self.multiprocessing_context in ["threading"]:
-            self._execute_local_task__threading(task_id, name, meta, args, kwargs)
+            self._execute_local_task__threading(task_id, name, meta, args, kwargs, pool)
         else:
-            self._execute_local_task__multiprocessing(task_id, name, meta, args, kwargs)
+            self._execute_local_task__multiprocessing(task_id, name, meta, args, kwargs, pool)
 
-    def _execute_local_task__threading(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
+    def _execute_local_task__threading(  # pylint: disable=R0913
+            self, task_id, name, meta, args=None, kwargs=None, pool=None,
+        ):
         if name not in self.task_registry:
             raise RuntimeError("Task not found")
         #
@@ -852,6 +858,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "result_transport": self.result_transport,
                 "result_config": result_config,
                 "multiprocessing_context": self.multiprocessing_context,
+                "pool": pool,
             },
             daemon=True,
         )
@@ -874,7 +881,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
             }
         )
 
-    def _execute_local_task__multiprocessing(self, task_id, name, meta, args=None, kwargs=None):  # pylint: disable=R0913
+    def _execute_local_task__multiprocessing(  # pylint: disable=R0913
+            self, task_id, name, meta, args=None, kwargs=None, pool=None,
+        ):
         if name not in self.task_registry:
             raise RuntimeError("Task not found")
         #
@@ -911,6 +920,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 "result_transport": self.result_transport,
                 "result_config": result_config,
                 "multiprocessing_context": self.multiprocessing_context,
+                "pool": pool,
             },
             daemon=False,
         )
@@ -947,23 +957,27 @@ class TaskNode:  # pylint: disable=R0902,R0904
             self,
             name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
+            pool,
     ):  # pylint: disable=R0913,R0914
         """ Task executor """
         if multiprocessing_context in ["threading"]:
             self._executor__threading(
                 name, target, task_id, meta, args, kwargs,
                 result_transport, result_config, multiprocessing_context,
+                pool,
             )
         else:
             self._executor__multiprocessing(
                 name, target, task_id, meta, args, kwargs,
                 result_transport, result_config, multiprocessing_context,
+                pool,
             )
 
     def _executor__threading(
             self,
             name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
+            pool,
     ):  # pylint: disable=R0913,R0914
         _ = multiprocessing_context
         #
@@ -975,6 +989,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             sys.modules["tasknode_task"].id = task_id
             sys.modules["tasknode_task"].meta = meta.copy()
             sys.modules["tasknode_task"].name = name
+            sys.modules["tasknode_task"].pool = pool
             #
             try:
                 output = target(*args, **kwargs)
@@ -1014,7 +1029,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
             self,
             name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
-    ):  # pylint: disable=R0913,R0914
+            pool,
+    ):  # pylint: disable=R0913,R0914,R0915
         try:
             if multiprocessing_context == "fork":
                 # Clear TaskNode->EventNode. Do not attempt to close connections
@@ -1041,6 +1057,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             setattr(sys.modules["tasknode_task"], "id", task_id)
             setattr(sys.modules["tasknode_task"], "meta", meta.copy())
             setattr(sys.modules["tasknode_task"], "name", name)
+            setattr(sys.modules["tasknode_task"], "pool", pool)
             #
             try:
                 output = target(*args, **kwargs)

@@ -129,6 +129,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                     args=task_payload.get("args"),
                     kwargs=task_payload.get("kwargs"),
                     durable=task_payload.get("durable"),
+                    pool=task_payload.get("pool"),
                 )
                 #
                 continue
@@ -250,6 +251,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
                     args=task_payload.get("args"),
                     kwargs=task_payload.get("kwargs"),
                     durable=task_payload.get("durable"),
+                    pool=task_payload.get("pool"),
                 )
                 #
                 continue
