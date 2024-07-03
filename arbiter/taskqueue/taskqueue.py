@@ -24,15 +24,16 @@ from arbiter import log
 from arbiter.tasknode.tools import InterruptTaskThread
 
 
-class TaskQueue(threading.Thread):
+class TaskQueue(threading.Thread):  # pylint: disable=R0902
     """ TaskQueue over TaskNode """
 
-    def __init__(self, task_node, debug=False, wait_timeout=3.0):
+    def __init__(self, task_node, debug=False, wait_timeout=3.0, max_pending_tasks=None):
         super().__init__(daemon=True)
         #
         self.task_node = task_node
         self.debug = debug
         self.wait_timeout = wait_timeout
+        self.max_pending_tasks = max_pending_tasks
         #
         self.stop_event = threading.Event()
         self.condition = threading.Condition()
@@ -74,9 +75,12 @@ class TaskQueue(threading.Thread):
 
     def add(self, *args, **kwargs):
         """ Add task to queue. Get 'promise' queue back """
-        task_id_queue = queue.Queue()
-        #
         with self.lock:
+            if self.max_pending_tasks is not None and \
+                    len(self.tasks) >= self.max_pending_tasks:
+                raise RuntimeError("Max pending tasks limit reached")
+            #
+            task_id_queue = queue.Queue()
             self.tasks.append(
                 (args, kwargs, task_id_queue)
             )
