@@ -979,8 +979,6 @@ class TaskNode:  # pylint: disable=R0902,R0904
             result_transport, result_config, multiprocessing_context,
             pool,
     ):  # pylint: disable=R0913,R0914
-        _ = multiprocessing_context
-        #
         try:
             import setproctitle  # pylint: disable=C0415,E0401
             setproctitle.setthreadtitle(f'tasknode_task {task_id}')
@@ -990,6 +988,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             sys.modules["tasknode_task"].meta = meta.copy()
             sys.modules["tasknode_task"].name = name
             sys.modules["tasknode_task"].pool = pool
+            sys.modules["tasknode_task"].multiprocessing_context = multiprocessing_context
             #
             try:
                 output = target(*args, **kwargs)
@@ -1058,6 +1057,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
             setattr(sys.modules["tasknode_task"], "meta", meta.copy())
             setattr(sys.modules["tasknode_task"], "name", name)
             setattr(sys.modules["tasknode_task"], "pool", pool)
+            setattr(
+                sys.modules["tasknode_task"], "multiprocessing_context", multiprocessing_context
+            )
             #
             try:
                 output = target(*args, **kwargs)
