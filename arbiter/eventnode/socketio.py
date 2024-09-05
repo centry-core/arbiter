@@ -20,6 +20,7 @@
 """
 
 import time
+import base64
 
 import socketio  # pylint: disable=E0401
 
@@ -32,7 +33,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
     """ Event node (Socket.IO) - allows to subscribe to events and to emit new events """
 
     def __init__(
-            self, url, password, room="events",
+            self, url, password, room="events", data_base64=True,
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             mute_first_failed_connections=0,
             ssl_verify=False, socketio_path="socket.io",
@@ -46,6 +47,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
             "url": url,
             "password": password,
             "room": room,
+            "data_base64": data_base64,
             "hmac_key": hmac_key,
             "hmac_digest": hmac_digest,
             "callback_workers": callback_workers,
@@ -64,6 +66,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
             "socketio_path": socketio_path,
         }
         #
+        self.data_base64 = data_base64
         self.retry_interval = retry_interval
         #
         self.mute_first_failed_connections = mute_first_failed_connections
@@ -90,6 +93,9 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
     def emit_data(self, data):
         """ Emit event data """
         with self.event_lock:
+            if self.data_base64:
+                data = base64.b64encode(data).decode()
+            #
             self.sio.emit("eventnode_event", data)
 
     def listening_worker(self):
@@ -112,6 +118,9 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
                     pass
 
     def _listening_callback(self, body):
+        if self.data_base64:
+            body = base64.b64decode(body)
+        #
         self.sync_queue.put(body)
 
     def _get_connection(self):
