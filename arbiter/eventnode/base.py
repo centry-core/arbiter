@@ -176,6 +176,10 @@ class EventNodeBase:  # pylint: disable=R0902
                             log.error("Invalid event digest, skipping")
                         continue
                 #
+                log.info(f"Event body: {body}")
+                log.info(f"Event type: {type(body)}")
+                if type(body) is str:
+                    body = body.encode()
                 event = pickle.loads(gzip.decompress(body))
                 #
                 event_name = event.get("name")
