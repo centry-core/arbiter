@@ -180,7 +180,7 @@ class EventNodeBase:  # pylint: disable=R0902
                 log.info(f"Event body: {body}")
                 log.info(f"Event type: {type(body)}")
                 if type(body) is str:
-                    body = base64.b64encode(body.encode())
+                    body = base64.b64decode(body)
                 event = pickle.loads(gzip.decompress(body))
                 #
                 event_name = event.get("name")
