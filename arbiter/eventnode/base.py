@@ -24,6 +24,7 @@ import gzip
 import queue
 import pickle
 import threading
+import base64
 
 from arbiter import log
 
@@ -179,7 +180,7 @@ class EventNodeBase:  # pylint: disable=R0902
                 log.info(f"Event body: {body}")
                 log.info(f"Event type: {type(body)}")
                 if type(body) is str:
-                    body = body.encode()
+                    body = base64.b64encode(body.encode())
                 event = pickle.loads(gzip.decompress(body))
                 #
                 event_name = event.get("name")
