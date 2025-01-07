@@ -129,16 +129,12 @@ class TaskQueue(threading.Thread):  # pylint: disable=R0902
             try:
                 import tasknode_task  # pylint: disable=E0401,C0415
                 #
-                task_meta = _rewrite("meta", tasknode_task.meta.copy())
-                if _rewrites.get("proxy_task_id", False):
-                    task_meta["proxy_task_id"] = tasknode_task.id
-                #
                 task_id_queue = _task_queue.add(
                     name=_rewrite("name", tasknode_task.name),
                     args=_rewrite("args", args),
                     kwargs=_rewrite("kwargs", kwargs),
                     pool=_rewrite("pool", tasknode_task.pool),
-                    meta=task_meta,
+                    meta=_rewrite("meta", tasknode_task.meta.copy()),
                 )
                 #
                 while True:
