@@ -28,6 +28,7 @@ import threading
 from arbiter import log
 
 from .tools import make_event_node
+from . import hooks
 
 
 class EventNodeBase:  # pylint: disable=R0902
@@ -44,6 +45,9 @@ class EventNodeBase:  # pylint: disable=R0902
         self.log_errors = log_errors
         self.event_callbacks = {}  # event_name -> [callbacks]
         self.catch_all_callbacks = []
+        #
+        self.before_callback_hooks = []
+        self.after_callback_hooks = []
         #
         self.hmac_key = hmac_key
         self.hmac_digest = hmac_digest
@@ -156,6 +160,30 @@ class EventNodeBase:  # pylint: disable=R0902
         """ Listening thread: push event data to sync_queue """
         raise NotImplementedError
 
+    def add_before_callback_hook(self, hook):
+        """ Register pre-callback hook """
+        with self.event_lock:
+            if hook not in self.before_callback_hooks:
+                self.before_callback_hooks.append(hook)
+
+    def remove_before_callback_hook(self, hook):
+        """ De-register pre-callback hook """
+        with self.event_lock:
+            while hook in self.before_callback_hooks:
+                self.before_callback_hooks.remove(hook)
+
+    def add_after_callback_hook(self, hook):
+        """ Register post-callback hook """
+        with self.event_lock:
+            if hook not in self.after_callback_hooks:
+                self.after_callback_hooks.append(hook)
+
+    def remove_after_callback_hook(self, hook):
+        """ De-register post-callback hook """
+        with self.event_lock:
+            while hook in self.after_callback_hooks:
+                self.after_callback_hooks.remove(hook)
+
     def callback_worker(self):  # pylint: disable=R0912
         """ Callback thread: call subscribers """
         while self.running:
@@ -187,11 +215,25 @@ class EventNodeBase:  # pylint: disable=R0902
                         callbacks.extend(self.event_callbacks[event_name])
                 #
                 for callback in callbacks:
+                    for hook in hooks.before_callback_hooks + self.before_callback_hooks:
+                        try:
+                            hook(callback, event_name, event_payload)
+                        except:  # pylint: disable=W0702
+                            if self.log_errors:
+                                log.exception("Before callback hook failed, skipping")
+                    #
                     try:
-                        callback(event_name, event_payload)
+                        callback_result = callback(event_name, event_payload)
                     except:  # pylint: disable=W0702
                         if self.log_errors:
                             log.exception("Event callback failed, skipping")
+                    #
+                    for hook in hooks.after_callback_hooks + self.after_callback_hooks:
+                        try:
+                            hook(callback, callback_result, event_name, event_payload)
+                        except:  # pylint: disable=W0702
+                            if self.log_errors:
+                                log.exception("After callback hook failed, skipping")
             except:  # pylint: disable=W0702
                 if self.log_errors:
                     log.exception("Error during event processing, skipping")
