@@ -1,3 +1,7 @@
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0103,C0413
+
 #  Copyright (c) 2020 getcarrier.io
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,20 +16,32 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from setuptools import setup, find_packages
+"""
+    Setup script
+"""
 
-with open('requirements.txt') as f:
+with open("requirements.txt", "r", encoding="utf-8") as f:
     required = f.read().splitlines()
 
+version = "1.1.0"
+try:
+    import subprocess
+    tag = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+    version = f"{version}+git.{tag.decode('utf-8').strip()}"
+except:  # pylint: disable=W0702
+    pass
+
+from setuptools import setup, find_packages
+
 setup(
-    name='arbiter',
-    version='1.0.0',
-    description='Distributed queue',
-    long_description='Lightweight distributed task queue',
-    url='https://getcarrier.io',
-    license='Apache License 2.0',
-    author='arozumenko, LifeDJIK',
-    author_email='artem_rozumenko@epam.com, ivan_krakhmaliuk@epam.com',
+    name="arbiter",
+    version=version,
+    description="Distributed queues, RPCs, events, tasks",
+    long_description="Lightweight distributed task management framework",
+    url="https://getcarrier.io",
+    license="Apache License 2.0",
+    author="arozumenko, LifeDJIK",
+    author_email="artem_rozumenko@epam.com, ivan_krakhmaliuk@epam.com",
     packages=find_packages(),
     install_requires=required
 )
