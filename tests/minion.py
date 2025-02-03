@@ -1,9 +1,13 @@
-from arbiter import Minion
+from arbiter import Minion, RedisEventNode
 from multiprocessing import Process
 from time import sleep
 import logging
 
-app = Minion(host="localhost", port=5672, user='user', password='password', queue="default")
+event_node = RedisEventNode(host="localhost", port=6379, password="", event_queue="tasks")
+
+app = Minion(event_node, queue="default")
+app.raw_task_node.multiprocessing_context = "threading"
+app.raw_task_node.result_transport = "memory"
 
 
 @app.task(name="add")
@@ -34,13 +38,14 @@ def addp(x, y, upstream=0):
 
 @app.task(name="long_running")
 def long_task():
-    sleep(180)
+    for _ in range(180):
+        sleep(1)
     return "Long Task"
 
 
 def run(rpc):
     if rpc:
-        app.rpc(workers=1, blocking=True)
+        raise RuntimeError("No longer supported")
     else:
         app.run(workers=10)
 

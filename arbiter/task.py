@@ -1,3 +1,7 @@
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0114,C0115,C0116
+
 #   Copyright 2020 getcarrier.io
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,8 +19,8 @@
 from time import time
 
 
-class Task:
-    def __init__(self, name, queue='default', tasks_count=1, task_key="", task_type="task",
+class Task:  # pylint: disable=R0902,R0903
+    def __init__(self, name, queue='default', tasks_count=1, task_key="", task_type="task",  # pylint: disable=R0913
                  task_args=None, task_kwargs=None, callback=False, callback_queue=None, timeout=-1):
         if not task_args:
             task_args = []
@@ -31,7 +35,7 @@ class Task:
         self.task_kwargs = task_kwargs
         self.callback = callback
         self.callback_queue = callback_queue
-        self.tasks_array = []  # this is for a task ids that need to be verified to be done before callback
+        self.tasks_array = []  # this is for a task ids that need to be verified to be done before callback  # pylint: disable=C0301
         self.timeout = timeout  # timeout in seconds. Works only with task_type=finalize
         self.start_time = int(time())
 

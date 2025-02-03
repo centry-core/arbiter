@@ -1,4 +1,8 @@
-#   Copyright 2020 getcarrier.io
+#!/usr/bin/python3
+# coding=utf-8
+# pylint: disable=C0114,C0115,C0116
+
+#   Copyright 2023 getcarrier.io
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -13,28 +17,54 @@
 #   limitations under the License.
 
 
-import logging
+from arbiter import log
 
-from .base import Base
-from .event.task import TaskEventHandler
-from .event.broadcast import GlobalEventHandler
-from .event.rpcServer import RPCEventHandler
 from .task import Task
+from .tasknode import TaskNode
 
 
-class Minion(Base):
-    def __init__(self, host, port, user, password, vhost="carrier", queue="default", all_queue="arbiterAll", use_ssl=False, ssl_verify=False):
-        super().__init__(host, port, user, password, vhost, queue, all_queue, use_ssl=use_ssl, ssl_verify=ssl_verify)
-        self.task_registry = {}
-        self.task_handlers = []
+class Minion:
+    def __init__(self, event_node, queue="default"):
+        self.queue = queue
+        self.raw_task_node = TaskNode(event_node, pool=self.queue, task_limit=0)
 
-    def apply(self, task_name, queue=None, tasks_count=1, task_args=None, task_kwargs=None, sync=True):
-        task = Task(task_name, queue=queue if queue else self.config.queue,
+    @property
+    def task_node(self):
+        if not self.raw_task_node.started:
+            self.raw_task_node.start()
+        return self.raw_task_node
+
+    def wait_for_tasks(self, tasks):
+        for task in tasks:
+            result = self.task_node.join_task(task)
+            yield {
+                "task_type": "task",
+                "state": "done",
+                "result": result,
+            }
+
+    def add_task(self, task, sync=False):
+        tasks = []
+        for _ in range(task.tasks_count):
+            task_key = self.task_node.start_task(
+                name=task.name,
+                args=task.task_args,
+                kwargs=task.task_kwargs,
+                pool=task.queue
+            )
+            tasks.append(task_key)
+            yield task_key
+        if sync:
+            for message in self.wait_for_tasks(tasks):
+                yield message
+
+    def apply(self, task_name, queue=None, tasks_count=1, task_args=None, task_kwargs=None, sync=True):  # pylint: disable=C0301,R0913
+        task = Task(task_name, queue=queue if queue else self.queue,
                     tasks_count=tasks_count, task_args=task_args, task_kwargs=task_kwargs)
         for message in self.add_task(task, sync=sync):
             yield message
 
-    def task(self, *args, **kwargs):
+    def task(self, *args, **kwargs):  # pylint: disable=W0613
         """ Task decorator """
         def inner_task(func):
             def create_task(**kwargs):
@@ -46,38 +76,16 @@ class Minion(Base):
             raise TypeError('@task decorated function must be callable')
         return inner_task
 
-    def _create_task_from_callable(self, func, name=None, **kwargs):
+    def _create_task_from_callable(self, func, name=None, **kwargs):  # pylint: disable=W0613
         name = name if name else f"{func.__name__}.{func.__module__}"
-        if name not in self.task_registry:
-            self.task_registry[name] = func
-        return self.task_registry[name]
+        self.raw_task_node.register_task(func, name)
+        return func
 
-    def rpc(self, workers, blocking=False):
-        self.rpc = True
-        state = dict()
-        subscriptions = dict()
-        logging.info("Starting '%s' RPC", self.config.queue)
-        state["queue"] = self.config.queue
-        for _ in range(workers):
-            self.task_handlers.append(RPCEventHandler(self.config, subscriptions, state,
-                                                      self.task_registry, wait_time=self.wait_time))
-            self.task_handlers[-1].start()
-            self.task_handlers[-1].wait_running()
-        if blocking:
-            for prcsrs in self.task_handlers:
-                prcsrs.join()
-
-    def run(self, workers):
-        state = dict()
-        subscriptions = dict()
-        logging.info("Starting '%s' worker", self.config.queue)
-        # Listen for task events
-        state["queue"] = self.config.queue
-        state["total_workers"] = workers
-        state["active_workers"] = 0
-        for _ in range(workers):
-            TaskEventHandler(self.config, subscriptions, state, self.task_registry, wait_time=self.wait_time).start()
-        # Listen for global events
-        global_handler = GlobalEventHandler(self.config, subscriptions, state)
-        global_handler.start()
-        global_handler.join()
+    def run(self, workers, block=True):
+        log.info("Starting '%s' worker", self.queue)
+        #
+        self.raw_task_node.task_limit = workers
+        self.raw_task_node.start()
+        #
+        if block:
+            self.raw_task_node.stop_event.wait()
