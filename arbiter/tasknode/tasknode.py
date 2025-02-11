@@ -2,7 +2,7 @@
 # coding=utf-8
 # pylint: disable=C0116,C0302
 
-#   Copyright 2023 getcarrier.io
+#   Copyright 2023-2025 getcarrier.io
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -59,6 +59,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             watcher_max_wait=3, stop_node_task_wait=3, result_max_wait=3,
             tmp_path="/tmp/tasknode", result_transport="memory",
             start_attempts=3, thread_scan_interval=1,
+            task_approver=None,
     ):
         self.event_node = event_node
         self.event_node_was_started = False
@@ -101,6 +102,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.started = False
+        #
+        self.task_approver = task_approver
 
     #
     # Node start and stop
@@ -205,13 +208,13 @@ class TaskNode:  # pylint: disable=R0902,R0904
     # Task registration
     #
 
-    def register_task(self, func, name=None):
+    def register_task(self, func, name=None, approver=None):
         """ Register task function """
         if name is None:
             name = self.get_callable_name(func)
         #
         with self.lock:
-            self.task_registry[name] = func
+            self.task_registry[name] = (func, approver)
 
     def unregister_task(self, func=None, name=None):
         """ Unregister task function """
@@ -704,10 +707,12 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.sync_queues[event_payload.get("sync_queue")].put(event_payload.copy())
 
-    def on_start_query(self, event_name, event_payload):
+    def on_start_query(self, event_name, event_payload):  # pylint: disable=R0911
         _ = event_name
         #
-        if event_payload.get("name", None) not in self.task_registry:
+        task_name = event_payload.get("name", None)
+        #
+        if task_name not in self.task_registry:
             return
         #
         if event_payload.get("pool", None) != self.pool:
@@ -715,6 +720,22 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         if self.task_limit is not None and len(self.running_tasks) >= self.task_limit:
             return
+        #
+        if self.task_approver is not None:
+            try:
+                if not self.task_approver(event_name, event_payload):
+                    return
+            except:  # pylint: disable=W0702
+                return
+        #
+        approver = self.task_registry[task_name][1]
+        #
+        if approver is not None:
+            try:
+                if not approver(event_name, event_payload):
+                    return
+            except:  # pylint: disable=W0702
+                return
         #
         self.event_node.emit(
             "task_start_candidate",
@@ -725,13 +746,15 @@ class TaskNode:  # pylint: disable=R0902,R0904
             }
         )
 
-    def on_start_request(self, event_name, event_payload):
+    def on_start_request(self, event_name, event_payload):  # pylint: disable=R0911
         _ = event_name
         #
         if event_payload.get("runner", None) != self.ident:
             return
         #
-        if event_payload.get("name", None) not in self.task_registry:
+        task_name = event_payload.get("name", None)
+        #
+        if task_name not in self.task_registry:
             return
         #
         if event_payload.get("pool", None) != self.pool:
@@ -739,6 +762,22 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         if self.task_limit is not None and len(self.running_tasks) >= self.task_limit:
             return
+        #
+        if self.task_approver is not None:
+            try:
+                if not self.task_approver(event_name, event_payload):
+                    return
+            except:  # pylint: disable=W0702
+                return
+        #
+        approver = self.task_registry[task_name][1]
+        #
+        if approver is not None:
+            try:
+                if not approver(event_name, event_payload):
+                    return
+            except:  # pylint: disable=W0702
+                return
         #
         self.event_node.emit(
             "task_start_ack",
@@ -850,7 +889,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             args=(),
             kwargs={
                 "name": name,
-                "target": self.task_registry[name],
+                "target": self.task_registry[name][0],
                 "task_id": task_id,
                 "meta": meta,
                 "args": args,
@@ -912,7 +951,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             args=(),
             kwargs={
                 "name": name,
-                "target": self.task_registry[name],
+                "target": self.task_registry[name][0],
                 "task_id": task_id,
                 "meta": meta,
                 "args": args,
