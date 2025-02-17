@@ -214,7 +214,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             name = self.get_callable_name(func)
         #
         with self.lock:
-            self.task_registry[name] = (func, approver)
+            self.task_registry[name] = [func, approver]
 
     def unregister_task(self, func=None, name=None):
         """ Unregister task function """
