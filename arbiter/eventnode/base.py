@@ -227,6 +227,8 @@ class EventNodeBase:  # pylint: disable=R0902
                     except:  # pylint: disable=W0702
                         if self.log_errors:
                             log.exception("Event callback failed, skipping")
+                        #
+                        callback_result = None  # FIXME: pass exceptions to after_callback_hooks?
                     #
                     for hook in hooks.after_callback_hooks + self.after_callback_hooks:
                         try:
