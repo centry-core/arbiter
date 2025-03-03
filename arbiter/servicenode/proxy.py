@@ -33,6 +33,7 @@ class ServiceNodeProxy:  # pylint: disable=R0902,R0903,R0904
     ):
         self.__service_node = service_node
         self.__timeout = timeout if timeout is not ... else self.__service_node.default_timeout
+        self.__partials = {}
 
     def __call__(self, *args, **kwargs):
         return ServiceNodeProxy(self.__service_node, *args, **kwargs)
@@ -46,4 +47,6 @@ class ServiceNodeProxy:  # pylint: disable=R0902,R0903,R0904
         )
 
     def __getattr__(self, name):
-        return functools.partial(self.__request, name)
+        if name not in self.__partials:
+            self.__partials[name] = functools.partial(self.__request, name)
+        return self.__partials[name]
