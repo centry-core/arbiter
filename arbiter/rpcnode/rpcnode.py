@@ -40,6 +40,7 @@ class RpcNode:  # pylint: disable=R0902
         self.service_node = ServiceNode(
             event_node=self.event_node,
             id_prefix=id_prefix if id_prefix is not None else "",
+            default_timeout=proxy_timeout,
         )
         #
         if proxy_timeout is None:
