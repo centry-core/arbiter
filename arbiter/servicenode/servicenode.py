@@ -135,12 +135,15 @@ class ServiceNode:  # pylint: disable=R0902,R0904
             request_exception=...,
     ):
         """ Service request """
+        if not self.started:
+            raise RuntimeError("ServiceNode is not started")
+        #
         if discovery_attempts is ...:
             discovery_attempts = self.default_discovery_attempts
         #
         for _ in range(discovery_attempts):
             try:
-                self._request(service, args, kwargs, timeout, request_exception)
+                return self._request(service, args, kwargs, timeout, request_exception)
             except request_exception:  # pylint: disable=E0712
                 continue
         #
