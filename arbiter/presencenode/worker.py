@@ -212,9 +212,11 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
                 )
             #
             if not self.node.pools[pool]:
-                events.append(
-                    ("pool_unhealthy", pool)
-                )
+                if self.node.pool_state[pool]["healthy"]:
+                    events.append(
+                        ("pool_unhealthy", pool)
+                    )
+                #
                 events.append(
                     ("pool_removed", pool)
                 )
