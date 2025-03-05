@@ -383,9 +383,11 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
         events = []
         #
         with self.node.lock:
-            events.append(
-                ("node_unhealthy", node_id)
-            )
+            if node_id in self.node.node_state and self.node.node_state[node_id]["healthy"]:
+                events.append(
+                    ("node_unhealthy", node_id)
+                )
+            #
             events.append(
                 ("node_leaving", node_id)
             )
