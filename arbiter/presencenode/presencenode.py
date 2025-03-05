@@ -63,7 +63,10 @@ class PresenceNode:  # pylint: disable=R0902,R0904
         self.auto_leaving_intervals = auto_leaving_intervals
         #
         self.pools = {}  # node_pool -> [node_id]
-        self.nodes = {}  # node_id -> {state, timestamp, pool, meta, ...}
+        self.nodes = {}  # node_id -> {id, pool, meta}
+        #
+        self.pool_state = {}
+        self.node_state = {}
         #
         self.health_checks = []
         self.callbacks = {}
