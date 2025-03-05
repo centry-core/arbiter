@@ -141,6 +141,9 @@ class ServiceNode:  # pylint: disable=R0902,R0904
         if discovery_attempts is ...:
             discovery_attempts = self.default_discovery_attempts
         #
+        if request_exception is ...:
+            request_exception = self.default_request_exception
+        #
         for _ in range(discovery_attempts):
             try:
                 return self._request(service, args, kwargs, timeout, request_exception)
