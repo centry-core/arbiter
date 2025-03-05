@@ -211,13 +211,6 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
                     (event, pool)
                 )
             #
-            if pool_health != self.node.pool_state[pool]["healthy"]:
-                event = "pool_healthy" if pool_health else "pool_unhealthy"
-                events.append(
-                    (event, pool)
-                )
-                self.node.pool_state[pool]["healthy"] = pool_health
-            #
             if not self.node.pools[pool]:
                 events.append(
                     ("pool_unhealthy", pool)
@@ -228,6 +221,13 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
                 #
                 self.node.pool_state.pop(pool, None)
                 self.node.pools.pop(pool, None)
+            #
+            elif pool_health != self.node.pool_state[pool]["healthy"]:
+                event = "pool_healthy" if pool_health else "pool_unhealthy"
+                events.append(
+                    (event, pool)
+                )
+                self.node.pool_state[pool]["healthy"] = pool_health
 
     def _add_self(self):
         self_healthy = self.get_health()
