@@ -423,6 +423,9 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
 
     def get_pool_health(self, pool, locked=False):
         """ Tool """
+        #
+        # Pool healthy if at least one healthy node present
+        #
         if pool not in self.node.pools or not self.node.pools[pool]:
             return False
         #
@@ -443,6 +446,9 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
 
     def get_health(self, locked=False):
         """ Tool """
+        #
+        # Node healthy if all health checks pass
+        #
         healthy = True
         #
         if not locked:
