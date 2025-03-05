@@ -154,25 +154,43 @@ class PresenceNode:  # pylint: disable=R0902,R0904
 
     def get_node(self, node_id):
         """ Helper """
-        return None
+        with self.lock:
+            if node_id not in self.node_state:
+                return None
+            #
+            data = self.nodes[node_id].copy()
+            data.update(self.node_state[node_id])
+            #
+            return data
 
     def is_node_present(self, node_id):
         """ Helper """
-        return False
+        with self.lock:
+            return node_id in self.node_state
 
     def is_node_healthy(self, node_id):
         """ Helper """
-        return False
+        with self.lock:
+            return node_id in self.node_state and self.node_state[node_id]["healthy"]
 
     def get_pool(self, node_pool):
         """ Helper """
-        return None
+        with self.lock:
+            if node_pool not in self.pool_state:
+                return None
+            #
+            data = self.pool_state[node_pool].copy()
+            data["nodes"] = self.pools[node_pool].copy()
+            #
+            return data
 
     def is_pool_present(self, node_pool):
-        return False
+        with self.lock:
+            return node_pool in self.pool_state
 
     def is_pool_healthy(self, node_pool):
-        return False
+        with self.lock:
+            return node_pool in self.pool_state and self.pool_state[node_pool]["healthy"]
 
     #
     # Tools
