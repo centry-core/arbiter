@@ -322,6 +322,14 @@ class PresenceNodeWorker(threading.Thread):  # pylint: disable=R0903
                         node_id
                     )
                 )
+                #
+                if node_pool not in self.node.pools:
+                    self.node.pools[node_pool] = []
+                #
+                if node_id not in self.node.pools[node_pool]:
+                    self.node.pools[node_pool].append(node_id)
+                #
+                self._check_pools([node_pool], events, locked=True)
             # State
             node_state = self.node.node_state[node_id]
             node_state["last_announce"] = now
