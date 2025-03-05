@@ -31,4 +31,5 @@ from arbiter.rpcnode import RpcNode
 from arbiter.tasknode import TaskNode
 from arbiter.taskqueue import TaskQueue
 from arbiter.streamnode import StreamNode
+from arbiter.servicenode import ServiceNode
 from arbiter.presencenode import PresenceNode
