@@ -208,6 +208,6 @@ class StreamNode:  # pylint: disable=R0902,R0904
         """ Get wrapper """
         return StreamEmitter(self, stream_id)
 
-    def get_consumer(self, stream_id):
+    def get_consumer(self, stream_id, timeout=None):
         """ Get wrapper """
-        return StreamConsumer(self, stream_id)
+        return StreamConsumer(self, stream_id, timeout)
