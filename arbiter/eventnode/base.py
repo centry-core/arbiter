@@ -57,9 +57,7 @@ class EventNodeBase:  # pylint: disable=R0902
         self.stop_event = threading.Event()
         self.event_lock = threading.Lock()
         self.sync_queue = queue.Queue()
-        self.emit_queue = queue.Queue()
         #
-        self.emitting_thread = threading.Thread(target=self.emitting_worker, daemon=True)
         self.listening_thread = threading.Thread(target=self.listening_worker, daemon=True)
         self.callback_threads = []
         for _ in range(callback_workers):
@@ -82,8 +80,6 @@ class EventNodeBase:  # pylint: disable=R0902
         """ Start event node """
         if self.started:
             return
-        #
-        self.emitting_thread.start()
         #
         if emit_only:
             self.ready_event.set()
@@ -137,7 +133,7 @@ class EventNodeBase:  # pylint: disable=R0902
             return
         #
         data = self.make_event_data(event_name, payload)
-        self.emit_queue.put(data)
+        self.emit_data(data)
 
     def make_event_data(self, event_name, payload=None):
         """ Make event data """
@@ -187,16 +183,6 @@ class EventNodeBase:  # pylint: disable=R0902
         with self.event_lock:
             while hook in self.after_callback_hooks:
                 self.after_callback_hooks.remove(hook)
-
-    def emitting_worker(self):  # pylint: disable=R0912
-        """ Emitting thread: emit data """
-        while self.running:
-            try:
-                data = self.emit_queue.get()
-                self.emit_data(data)
-            except:  # pylint: disable=W0702
-                if self.log_errors:
-                    log.exception("Error during event emitting, skipping")
 
     def callback_worker(self):  # pylint: disable=R0912
         """ Callback thread: call subscribers """
