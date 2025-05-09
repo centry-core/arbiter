@@ -1083,7 +1083,11 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 import signal  # pylint: disable=C0415
                 for sig in [signal.SIGTERM, signal.SIGINT]:
                     signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
-                # Also need to think about gevent? Logging? Base pylon re-init here?
+                # Re-open stderr to try to mitigate logging locks
+                import os
+                import sys  # pylint: disable=C0415
+                sys.stderr = open(os.dup(sys.stderr.fileno()), sys.stderr.mode)
+                # Think more about gevent? Logging? Base pylon re-init here?
             #
             import setproctitle  # pylint: disable=C0415,E0401
             setproctitle.setproctitle(f'tasknode_task {task_id}')
