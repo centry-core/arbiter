@@ -140,7 +140,8 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                 except:  # pylint: disable=W0702
                     pass
                 #
-                time.sleep(self.retry_interval)
+                if self.running:
+                    time.sleep(self.retry_interval)
             finally:
                 try:
                     pubsub.close()  # TODO: handle redis errors
