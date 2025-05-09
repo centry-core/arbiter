@@ -95,7 +95,7 @@ class StreamNode:  # pylint: disable=R0902,R0904
             stream_id = self.generate_stream_id()
         #
         with self.lock:
-            self.streams[stream_id] = queue.Queue()
+            self.streams[stream_id] = queue.SimpleQueue()
         #
         return stream_id
 

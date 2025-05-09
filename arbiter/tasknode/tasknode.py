@@ -272,8 +272,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
         ack_queue = f'task_start_ack_{task_id}'
         #
         with self.lock:
-            self.sync_queues[query_queue] = queue.Queue()
-            self.sync_queues[ack_queue] = queue.Queue()
+            self.sync_queues[query_queue] = queue.SimpleQueue()
+            self.sync_queues[ack_queue] = queue.SimpleQueue()
         #
         self.event_node.emit(
             "task_start_query",
@@ -873,7 +873,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         elif self.result_transport == "events":
             result_config = self.event_node.clone_config.copy()
         elif self.result_transport == "memory":
-            result_config = queue.Queue()
+            result_config = queue.SimpleQueue()
             result = result_config
         else:
             raise RuntimeError(f"Invalid result transport: {self.result_transport}")

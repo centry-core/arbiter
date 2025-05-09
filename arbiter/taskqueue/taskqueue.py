@@ -80,7 +80,7 @@ class TaskQueue(threading.Thread):  # pylint: disable=R0902
                     len(self.tasks) >= self.max_pending_tasks:
                 raise RuntimeError("Max pending tasks limit reached")
             #
-            task_id_queue = queue.Queue()
+            task_id_queue = queue.SimpleQueue()
             self.tasks.append(
                 (args, kwargs, task_id_queue)
             )
