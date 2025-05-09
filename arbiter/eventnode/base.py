@@ -56,7 +56,7 @@ class EventNodeBase:  # pylint: disable=R0902
         #
         self.stop_event = threading.Event()
         self.event_lock = threading.Lock()
-        self.sync_queue = queue.Queue()
+        self.sync_queue = queue.SimpleQueue()
         #
         self.listening_thread = threading.Thread(target=self.listening_worker, daemon=True)
         self.callback_threads = []

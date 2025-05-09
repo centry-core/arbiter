@@ -272,8 +272,8 @@ class TaskNode:  # pylint: disable=R0902,R0904
         ack_queue = f'task_start_ack_{task_id}'
         #
         with self.lock:
-            self.sync_queues[query_queue] = queue.Queue()
-            self.sync_queues[ack_queue] = queue.Queue()
+            self.sync_queues[query_queue] = queue.SimpleQueue()
+            self.sync_queues[ack_queue] = queue.SimpleQueue()
         #
         self.event_node.emit(
             "task_start_query",
@@ -873,7 +873,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         elif self.result_transport == "events":
             result_config = self.event_node.clone_config.copy()
         elif self.result_transport == "memory":
-            result_config = queue.Queue()
+            result_config = queue.SimpleQueue()
             result = result_config
         else:
             raise RuntimeError(f"Invalid result transport: {self.result_transport}")
@@ -1068,7 +1068,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
             pool,
-    ):  # pylint: disable=R0913,R0914,R0915
+    ):  # pylint: disable=R0912,R0913,R0914,R0915
         try:
             if multiprocessing_context == "fork":
                 # Clear TaskNode->EventNode. Do not attempt to close connections
@@ -1083,7 +1083,19 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 import signal  # pylint: disable=C0415
                 for sig in [signal.SIGTERM, signal.SIGINT]:
                     signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
-                # Also need to think about gevent? Logging? Base pylon re-init here?
+                # Re-open stderr to try to mitigate logging locks
+                import sys  # pylint: disable=C0415
+                prev_stderr = sys.stderr
+                new_stderr = open(os.dup(sys.stderr.fileno()), sys.stderr.mode)  # pylint: disable=W1514,R1732
+                sys.stderr = new_stderr
+                # Change logging stderr streams to new one
+                import logging  # pylint: disable=C0415
+                for handler in list(logging.root.handlers):
+                    if not isinstance(handler, logging.StreamHandler):
+                        continue
+                    if handler.stream == prev_stderr:
+                        handler.stream = new_stderr
+                # Think more about gevent? Logging re-init? Base pylon re-init here?
             #
             import setproctitle  # pylint: disable=C0415,E0401
             setproctitle.setproctitle(f'tasknode_task {task_id}')

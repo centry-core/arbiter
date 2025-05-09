@@ -166,8 +166,8 @@ class ServiceNode:  # pylint: disable=R0902,R0904
         #
         with self.lock:
             self.known_ids.add(request_id)
-            self.queues[discovery_queue] = queue.Queue()
-            self.queues[request_queue] = queue.Queue()
+            self.queues[discovery_queue] = queue.SimpleQueue()
+            self.queues[request_queue] = queue.SimpleQueue()
         #
         try:
             self.event_node.emit(
