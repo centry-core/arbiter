@@ -130,7 +130,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                     #
                     self.sync_queue.put(message.get("data", b""))
             except:  # pylint: disable=W0702
-                if self.log_errors:
+                if self.running and self.log_errors:
                     log.exception(
                         "Exception in listening thread. Retrying in %s seconds", self.retry_interval
                     )
