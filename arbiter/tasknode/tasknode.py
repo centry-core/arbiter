@@ -1068,7 +1068,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             name, target, task_id, meta, args, kwargs,
             result_transport, result_config, multiprocessing_context,
             pool,
-    ):  # pylint: disable=R0913,R0914,R0915
+    ):  # pylint: disable=R0912,R0913,R0914,R0915
         try:
             if multiprocessing_context == "fork":
                 # Clear TaskNode->EventNode. Do not attempt to close connections
@@ -1084,10 +1084,18 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 for sig in [signal.SIGTERM, signal.SIGINT]:
                     signal.signal(sig, lambda *x, **y: os._exit(0))  # pylint: disable=W0212
                 # Re-open stderr to try to mitigate logging locks
-                import os
                 import sys  # pylint: disable=C0415
-                sys.stderr = open(os.dup(sys.stderr.fileno()), sys.stderr.mode)
-                # Think more about gevent? Logging? Base pylon re-init here?
+                prev_stderr = sys.stderr
+                new_stderr = open(os.dup(sys.stderr.fileno()), sys.stderr.mode)  # pylint: disable=W1514,R1732
+                sys.stderr = new_stderr
+                # Change logging stderr streams to new one
+                import logging  # pylint: disable=C0415
+                for handler in list(logging.root.handlers):
+                    if not isinstance(handler, logging.StreamHandler):
+                        continue
+                    if handler.stream == prev_stderr:
+                        handler.stream = new_stderr
+                # Think more about gevent? Logging re-init? Base pylon re-init here?
             #
             import setproctitle  # pylint: disable=C0415,E0401
             setproctitle.setproctitle(f'tasknode_task {task_id}')
