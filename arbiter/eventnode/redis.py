@@ -21,8 +21,6 @@
 
 import time
 
-from redis import StrictRedis  # pylint: disable=E0401
-
 from arbiter import log
 
 from .base import EventNodeBase
@@ -38,7 +36,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             use_ssl=False, ssl_verify=False,
             log_errors=True,
             retry_interval=3.0,
-    ):  # pylint: disable=R0913
+    ):  # pylint: disable=R0913,R0914
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
         self.clone_config = {
@@ -57,29 +55,46 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "retry_interval": retry_interval,
         }
         #
+        self.retry_interval = retry_interval
+        self.mute_first_failed_connections = mute_first_failed_connections
+        self.failed_connections = 0
+        #
+        try:
+            import pylon  # pylint: disable=C0415,E0401,W0611
+            from tools import context  # pylint: disable=C0415,E0401
+            #
+            is_gevent = context.web_runtime == "gevent"
+        except:  # pylint: disable=W0702
+            is_gevent = False
+        #
+        self.redis_event_queue = event_queue
         self.redis_config = {
             "host": host,
             "port": port,
             "password": password,
-            "event_queue": event_queue,
+            "health_check_interval": 10,
         }
         #
-        self.use_ssl = use_ssl
-        self.ssl_verify = ssl_verify
+        if use_ssl:
+            from redis.connection import SSLConnection  # pylint: disable=C0415,E0401
+            #
+            self.redis_config["connection_class"] = SSLConnection
+            self.redis_config["ssl_cert_reqs"] = "required" if ssl_verify else "none"
         #
-        self.retry_interval = retry_interval
-        #
-        self.mute_first_failed_connections = mute_first_failed_connections
-        self.failed_connections = 0
+        if is_gevent:
+            from gevent.queue import LifoQueue  # pylint: disable=C0415,E0401
+            #
+            self.redis_config["queue_class"] = LifoQueue
         #
         self.redis = None
+        self.redis_pool = None
 
     def start(self, emit_only=False):
         """ Start event node """
         if self.started:
             return
         #
-        self.redis = self._get_connection()
+        self.redis, self.redis_pool = self._get_connection_and_pool()
         #
         super().start(emit_only)
 
@@ -89,17 +104,20 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         if self.started:
             self.redis.close()
+            #
+            if self.redis_pool is not None:
+                self.redis_pool.close()
 
     def emit_data(self, data):
         """ Emit event data """
-        self.redis.publish(self.redis_config.get("event_queue"), data)
+        self.redis.publish(self.redis_event_queue, data)
 
     def listening_worker(self):
         """ Listening thread: push event data to sync_queue """
         while self.running:
             try:
                 pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
-                pubsub.subscribe(self.redis_config.get("event_queue"))
+                pubsub.subscribe(self.redis_event_queue)
                 #
                 self.ready_event.set()
                 #
@@ -126,19 +144,16 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                 except:  # pylint: disable=W0702
                     pass
 
-    def _get_connection(self):
+    def _get_connection_and_pool(self):
         while self.running:
             try:
-                redis = StrictRedis(
-                    host=self.redis_config.get("host"),
-                    port=self.redis_config.get("port", 6379),
-                    password=self.redis_config.get("password", None),
-                    ssl=self.use_ssl,
-                    ssl_cert_reqs="required" if self.ssl_verify else "none",
-                    health_check_interval=10,
-                )
+                from redis.connection import BlockingConnectionPool  # pylint: disable=C0415,E0401
+                from redis import Redis  # pylint: disable=C0415,E0401
                 #
-                return redis
+                redis_pool = BlockingConnectionPool(**self.redis_config)
+                redis = Redis(connection_pool=redis_pool)
+                #
+                return redis, redis_pool
             except:  # pylint: disable=W0702
                 if self.log_errors and \
                         self.failed_connections >= self.mute_first_failed_connections:
@@ -149,4 +164,4 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                 self.failed_connections += 1
                 time.sleep(self.retry_interval)
         #
-        return None
+        return None, None
