@@ -1076,6 +1076,9 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 self.event_node.event_callbacks = {}
                 self.event_node.catch_all_callbacks = []
                 self.running_tasks = {}
+                # Drop importlib locks
+                import importlib._bootstrap  # pylint: disable=C0415
+                importlib._bootstrap._module_locks = {}  # pylint: disable=W0212
                 # Re-init for SSL
                 import ssl  # pylint: disable=C0415
                 ssl.RAND_bytes(1)
