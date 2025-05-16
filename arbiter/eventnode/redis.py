@@ -83,6 +83,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             #
             self.redis_config["connection_class"] = SSLConnection
             self.redis_config["ssl_cert_reqs"] = "required" if ssl_verify else "none"
+            self.redis_config["ssl_check_hostname"] = ssl_verify
         #
         if is_gevent:
             from gevent.queue import LifoQueue  # pylint: disable=C0415,E0401
