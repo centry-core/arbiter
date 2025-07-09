@@ -21,7 +21,16 @@
 
 import time
 
-import zmq  # pylint: disable=E0401
+try:
+    import pylon  # pylint: disable=C0415,E0401,W0611
+    from tools import context  # pylint: disable=C0415,E0401
+    #
+    if context.web_runtime == "gevent":
+        import zmq.green as zmq  # pylint: disable=C0415,E0401
+    else:
+        import zmq  # pylint: disable=E0401
+except:  # pylint: disable=W0702
+    import zmq  # pylint: disable=E0401
 
 from arbiter import log
 
