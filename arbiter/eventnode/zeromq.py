@@ -101,7 +101,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         while self.running:
             try:
                 self.zmq_socket_sub = self.zmq_ctx.socket(zmq.SUB)
-                self.zmq_socket_sub.connect(self.zmq_socket_sub)
+                self.zmq_socket_sub.connect(self.zeromq_connect_sub)
                 self.zmq_socket_sub.setsockopt(zmq.SUBSCRIBE, self.zeromq_topic)
                 #
                 self.ready_event.set()
