@@ -22,5 +22,6 @@ from .tools import make_event_node
 from .rabbitmq import EventNode
 from .redis import RedisEventNode
 from .socketio import SocketIOEventNode
+from .zeromq import ZeroMQEventNode
 
 from .mock import MockEventNode

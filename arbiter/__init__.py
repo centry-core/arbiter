@@ -25,6 +25,7 @@ from arbiter.eventnode import make_event_node
 from arbiter.eventnode import EventNode
 from arbiter.eventnode import RedisEventNode
 from arbiter.eventnode import SocketIOEventNode
+from arbiter.eventnode import ZeroMQEventNode
 from arbiter.eventnode import MockEventNode
 
 from arbiter.rpcnode import RpcNode
