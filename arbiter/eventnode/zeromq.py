@@ -21,17 +21,6 @@
 
 import time
 
-try:
-    import pylon  # pylint: disable=C0415,E0401,W0611
-    from tools import context  # pylint: disable=C0415,E0401
-    #
-    if context.web_runtime == "gevent":
-        import zmq.green as zmq  # pylint: disable=C0415,E0401
-    else:
-        import zmq  # pylint: disable=E0401
-except:  # pylint: disable=W0702
-    import zmq  # pylint: disable=E0401
-
 from arbiter import log
 
 from .base import EventNodeBase
@@ -81,6 +70,17 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         if self.started:
             return
         #
+        try:
+            import pylon  # pylint: disable=C0415,E0401,W0611
+            from tools import context  # pylint: disable=C0415,E0401
+            #
+            if context.web_runtime == "gevent":
+                import zmq.green as zmq  # pylint: disable=C0415,E0401
+            else:
+                import zmq  # pylint: disable=C0415,E0401
+        except:  # pylint: disable=W0702
+            import zmq  # pylint: disable=C0415,E0401
+        #
         self.zmq_ctx = zmq.Context()
         #
         self.zmq_socket_push = self.zmq_ctx.socket(zmq.PUSH)
@@ -105,8 +105,19 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         """ Emit event data """
         self.zmq_socket_push.send_multipart([self.zeromq_topic, data])
 
-    def listening_worker(self):
+    def listening_worker(self):  # pylint: disable=R0912
         """ Listening thread: push event data to sync_queue """
+        try:
+            import pylon  # pylint: disable=C0415,E0401,W0611
+            from tools import context  # pylint: disable=C0415,E0401
+            #
+            if context.web_runtime == "gevent":
+                import zmq.green as zmq  # pylint: disable=C0415,E0401
+            else:
+                import zmq  # pylint: disable=C0415,E0401
+        except:  # pylint: disable=W0702
+            import zmq  # pylint: disable=C0415,E0401
+        #
         while self.running:
             try:
                 self.zmq_socket_sub = self.zmq_ctx.socket(zmq.SUB)
