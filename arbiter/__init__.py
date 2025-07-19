@@ -28,6 +28,8 @@ from arbiter.eventnode import SocketIOEventNode
 from arbiter.eventnode import ZeroMQEventNode
 from arbiter.eventnode import MockEventNode
 
+from arbiter.servernode import ZeroMQServerNode
+
 from arbiter.rpcnode import RpcNode
 from arbiter.tasknode import TaskNode
 from arbiter.taskqueue import TaskQueue
