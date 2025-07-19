@@ -45,6 +45,7 @@ from .housekeeper import TaskNodeHousekeeper
 from .watcher import TaskNodeWatcher
 from .tools import InterruptTaskThread
 from .tools import reap_zombies
+from ..tools.pylon import is_runtime_gevent
 
 
 class TaskNode:  # pylint: disable=R0902,R0904
@@ -83,6 +84,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         self.multiprocessing_context = multiprocessing_context
         self.kill_on_stop = kill_on_stop
+        self.gevent_runtime = is_runtime_gevent()
         self.task_limit = task_limit
         self.task_retention_period = task_retention_period
         #
@@ -535,14 +537,18 @@ class TaskNode:  # pylint: disable=R0902,R0904
             data = self.running_tasks.get(task_id, {})
             thread = data.get("thread", None)
         #
-        if thread is not None:
-            # Note: this way will not stop running blocking system calls (e.g. sleep())
-            # May try to use pthread_kill to interrupt if possible in the future
-            # Also can do some error checks (e.g. if exception was set to multiple threads)
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                ctypes.c_ulong(thread.ident),
-                ctypes.py_object(InterruptTaskThread),
-            )
+        if thread is not None and thread.is_alive():
+            if self.gevent_runtime:
+                greenlet = ctypes.cast(thread.ident, ctypes.py_object).value
+                greenlet.kill(exception=InterruptTaskThread, block=False)
+            else:
+                # Note: this way will not stop running blocking system calls (e.g. sleep())
+                # May try to use pthread_kill to interrupt if possible in the future
+                # Also can do some error checks (e.g. if exception was set to multiple threads)
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_ulong(thread.ident),
+                    ctypes.py_object(InterruptTaskThread),
+                )
 
     def _stop_task__multiprocessing(self, task_id):
         if task_id not in self.running_tasks:
@@ -552,7 +558,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             data = self.running_tasks.get(task_id, {})
             process = data.get("process", None)
         #
-        if process is not None:
+        if process is not None and process.is_alive():
             if self.kill_on_stop:
                 process.kill()
             else:

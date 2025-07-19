@@ -24,6 +24,7 @@ import time
 from arbiter import log
 
 from .base import EventNodeBase
+from ..tools.pylon import is_runtime_gevent
 
 
 class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
@@ -61,6 +62,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         self.zeromq_topic = topic_format.format(topic).encode("utf-8")
         #
+        self.zmq_gevent = is_runtime_gevent()
+        #
         self.zmq_ctx = None
         self.zmq_socket_sub = None
         self.zmq_socket_push = None
@@ -71,10 +74,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             return
         #
         try:
-            import pylon  # pylint: disable=C0415,E0401,W0611
-            from tools import context  # pylint: disable=C0415,E0401
-            #
-            if context.web_runtime == "gevent":
+            if self.zmq_gevent:
                 import zmq.green as zmq  # pylint: disable=C0415,E0401
             else:
                 import zmq  # pylint: disable=C0415,E0401
@@ -108,10 +108,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
     def listening_worker(self):  # pylint: disable=R0912
         """ Listening thread: push event data to sync_queue """
         try:
-            import pylon  # pylint: disable=C0415,E0401,W0611
-            from tools import context  # pylint: disable=C0415,E0401
-            #
-            if context.web_runtime == "gevent":
+            if self.zmq_gevent:
                 import zmq.green as zmq  # pylint: disable=C0415,E0401
             else:
                 import zmq  # pylint: disable=C0415,E0401

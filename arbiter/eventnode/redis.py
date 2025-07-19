@@ -24,6 +24,7 @@ import time
 from arbiter import log
 
 from .base import EventNodeBase
+from ..tools.pylon import is_runtime_gevent
 
 
 class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
@@ -59,13 +60,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0
         #
-        try:
-            import pylon  # pylint: disable=C0415,E0401,W0611
-            from tools import context  # pylint: disable=C0415,E0401
-            #
-            is_gevent = context.web_runtime == "gevent"
-        except:  # pylint: disable=W0702
-            is_gevent = False
+        is_gevent = is_runtime_gevent()
         #
         self.redis_event_queue = event_queue
         self.redis_config = {
