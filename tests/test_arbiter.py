@@ -49,6 +49,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         assert arbiter.workers()[arbiter_queue]['total'] == 10
         task_keys = []
         for _ in range(tasks_in_task_in_task):
@@ -74,6 +75,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -96,6 +98,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         tasks = []
         for _ in range(tasks_in_pipe):
             tasks.append(Task("add_in_pipe", task_args=[2]))
@@ -124,6 +127,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         start = time()
         tasks = arbiter.apply("long_running")
         for task_key in tasks:
@@ -147,6 +151,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("long_running"))
@@ -169,6 +174,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -193,6 +199,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         tasks = []
         for _ in range(tasks_in_squad):
             tasks.append(Task("simple_add", task_args=[1, 2]))
@@ -217,6 +224,7 @@ class TestArbiter:
                 topic="tasks",
             )
         )
+        arbiter.raw_task_node.query_wait = 1
         for result in arbiter.add_task(Task("simple_add", task_args=[1, 2]), sync=True):
             if isinstance(result, dict):
                 assert result['state'] == 'done'
