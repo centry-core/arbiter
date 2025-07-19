@@ -142,6 +142,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         zmq_socket_sub.connect(self.zeromq_connect_sub)
         zmq_socket_sub.subscribe(self.zeromq_topic)
         #
+        time.sleep(1)  # NOTE: use ZMQ monitor later (e.g. wait_for_connected)
+        #
         self.ready_event.set()
         #
         while self.running:
