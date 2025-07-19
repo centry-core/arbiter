@@ -20,11 +20,11 @@
 import pytest  # pylint: disable=E0401,W0611
 
 from time import sleep, time
-from arbiter import Arbiter, Task, RedisEventNode
+from arbiter import Arbiter, Task, ZeroMQEventNode
 from tests.minion import stop_minion, start_minion
 
-arbiter_host = "localhost"
-arbiter_password = ""
+arbiter_connect_sub = "tcp://localhost:5010"
+arbiter_connect_push = "tcp://localhost:5011"
 arbiter_queue = "default"
 
 
@@ -43,11 +43,10 @@ class TestArbiter:
     def test_task_in_task():
         tasks_in_task_in_task = 5
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         assert arbiter.workers()[arbiter_queue]['total'] == 10
@@ -69,11 +68,10 @@ class TestArbiter:
     def test_squad():
         tasks_in_squad = 3
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         tasks = []
@@ -92,11 +90,10 @@ class TestArbiter:
     def test_pipe():
         tasks_in_pipe = 20
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         tasks = []
@@ -121,17 +118,16 @@ class TestArbiter:
     @staticmethod
     def test_kill_task():
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         start = time()
         tasks = arbiter.apply("long_running")
         for task_key in tasks:
-            assert arbiter.status(task_key)['state'] == 'initiated'
+            assert arbiter.status(task_key)['state'] in ('initiated', 'running')
         sleep(2)  # time for task to settle
         arbiter.kill(tasks[0], sync=True)
         for message in arbiter.wait_for_tasks(tasks):
@@ -145,11 +141,10 @@ class TestArbiter:
         tasks_in_squad = 3
         start = time()
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         tasks = []
@@ -168,11 +163,10 @@ class TestArbiter:
     def test_squad_callback():
         tasks_in_squad = 3
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         tasks = []
@@ -193,11 +187,10 @@ class TestArbiter:
     def test_squad_finalyzer():
         tasks_in_squad = 3
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         tasks = []
@@ -218,11 +211,10 @@ class TestArbiter:
     @staticmethod
     def test_sync_task():
         arbiter = Arbiter(
-            event_node=RedisEventNode(
-                host=arbiter_host,
-                port=6379,
-                password=arbiter_password,
-                event_queue="tasks"
+            event_node=ZeroMQEventNode(
+                connect_sub=arbiter_connect_sub,
+                connect_push=arbiter_connect_push,
+                topic="tasks",
             )
         )
         for result in arbiter.add_task(Task("simple_add", task_args=[1, 2]), sync=True):

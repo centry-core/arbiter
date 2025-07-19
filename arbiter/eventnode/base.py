@@ -39,6 +39,7 @@ class EventNodeBase:  # pylint: disable=R0902
             hmac_key=None, hmac_digest="sha512",
             callback_workers=1,
             log_errors=True,
+            use_emit_queue=False,
     ):  # pylint: disable=R0913
         self.clone_config = None
         #
@@ -56,10 +57,22 @@ class EventNodeBase:  # pylint: disable=R0902
         #
         self.stop_event = threading.Event()
         self.event_lock = threading.Lock()
+        #
+        self.queue_get_timeout = 1
+        #
         self.sync_queue = queue.SimpleQueue()
+        self.use_emit_queue = use_emit_queue
+        #
+        self.emit_queue = None
+        self.emitting_thread = None
+        #
+        if self.use_emit_queue:
+            self.emit_queue = queue.SimpleQueue()
+            self.emitting_thread = threading.Thread(target=self.emitting_worker, daemon=True)
         #
         self.listening_thread = threading.Thread(target=self.listening_worker, daemon=True)
         self.callback_threads = []
+        #
         for _ in range(callback_workers):
             self.callback_threads.append(
                 threading.Thread(target=self.callback_worker, daemon=True)
@@ -81,10 +94,14 @@ class EventNodeBase:  # pylint: disable=R0902
         if self.started:
             return
         #
+        if self.use_emit_queue:
+            self.emitting_thread.start()
+        #
         if emit_only:
             self.ready_event.set()
         else:
             self.listening_thread.start()
+            #
             for callback_thread in self.callback_threads:
                 callback_thread.start()
         #
@@ -94,6 +111,8 @@ class EventNodeBase:  # pylint: disable=R0902
     def stop(self):
         """ Stop event node """
         self.stop_event.set()
+        #
+        # FIXME: wait for threads?
 
     @property
     def running(self):
@@ -133,7 +152,11 @@ class EventNodeBase:  # pylint: disable=R0902
             return
         #
         data = self.make_event_data(event_name, payload)
-        self.emit_data(data)
+        #
+        if self.use_emit_queue:
+            self.emit_queue.put(data)
+        else:
+            self.emit_data(data)
 
     def make_event_data(self, event_name, payload=None):
         """ Make event data """
@@ -154,11 +177,12 @@ class EventNodeBase:  # pylint: disable=R0902
 
     def emit_data(self, data):
         """ Emit event data """
-        raise NotImplementedError
+
+    def emitting_worker(self):
+        """ Emitting thread: emit event data from emit_queue """
 
     def listening_worker(self):
         """ Listening thread: push event data to sync_queue """
-        raise NotImplementedError
 
     def add_before_callback_hook(self, hook):
         """ Register pre-callback hook """
@@ -188,7 +212,7 @@ class EventNodeBase:  # pylint: disable=R0902
         """ Callback thread: call subscribers """
         while self.running:
             try:
-                body = self.sync_queue.get()
+                body = self.sync_queue.get(self.queue_get_timeout)
                 #
                 if self.hmac_key is not None:
                     hmac_obj = hmac.new(self.hmac_key, digestmod=self.hmac_digest)
@@ -236,6 +260,10 @@ class EventNodeBase:  # pylint: disable=R0902
                         except:  # pylint: disable=W0702
                             if self.log_errors:
                                 log.exception("After callback hook failed, skipping")
+            except queue.Empty:
+                pass
             except:  # pylint: disable=W0702
                 if self.log_errors:
                     log.exception("Error during event processing, skipping")
+        #
+        log.debug("Callback worker thread exiting")

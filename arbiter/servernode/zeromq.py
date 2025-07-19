@@ -43,8 +43,7 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
         self.gevent_runtime = is_runtime_gevent()
         #
         self.zmq_ctx = None
-        self.zmq_socket_pub = None
-        self.zmq_socket_pull = None
+        self.zmq_linger = 5
         self.zmq_server_thread = None
 
     #
@@ -65,12 +64,6 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
         #
         self.zmq_ctx = zmq.Context()
         #
-        self.zmq_socket_pub = self.zmq_ctx.socket(zmq.PUB)  # pylint: disable=E1101
-        self.zmq_socket_pub.bind(self.bind_pub)
-        #
-        self.zmq_socket_pull = self.zmq_ctx.socket(zmq.PULL)  # pylint: disable=E1101
-        self.zmq_socket_pull.bind(self.bind_pull)
-        #
         self.zmq_server_thread = ZeroMQServerThread(self)
         self.zmq_server_thread.start()
         #
@@ -81,14 +74,12 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
 
     def stop(self):
         """ Stop task node """
-        self.zmq_socket_pull.close(linger=10)
-        self.zmq_socket_pub.close(linger=10)
-        self.zmq_ctx.term()
-        #
         self.started = False
         self.stop_event.set()
         #
-        self.zmq_server_thread.join(timeout=15)
+        self.zmq_ctx.term()
+        #
+        self.zmq_server_thread.join(timeout=self.zmq_linger * 3)
 
 
 class ZeroMQServerThread(threading.Thread):  # pylint: disable=R0903
@@ -96,16 +87,35 @@ class ZeroMQServerThread(threading.Thread):  # pylint: disable=R0903
 
     def __init__(self, node):
         super().__init__(daemon=True)
+        #
         self.node = node
 
     def run(self):
         """ Run thread """
+        if self.node.gevent_runtime:
+            import zmq.green as zmq  # pylint: disable=C0415,E0401,E1101
+        else:
+            import zmq  # pylint: disable=C0415,E0401,E1101
+        #
+        zmq_socket_pub = self.node.zmq_ctx.socket(zmq.PUB)  # pylint: disable=E1101
+        zmq_socket_pub.setsockopt(zmq.LINGER, self.node.zmq_linger)
+        zmq_socket_pub.bind(self.node.bind_pub)
+        #
+        zmq_socket_pull = self.node.zmq_ctx.socket(zmq.PULL)  # pylint: disable=E1101
+        zmq_socket_pull.setsockopt(zmq.LINGER, self.node.zmq_linger)
+        zmq_socket_pull.bind(self.node.bind_pull)
         #
         while not self.node.stop_event.is_set():
             try:
-                frame = self.node.zmq_socket_pull.recv_multipart()
-                self.node.zmq_socket_pub.send_multipart(frame)
+                frame = zmq_socket_pull.recv_multipart()
+                zmq_socket_pub.send_multipart(frame)
             except:  # pylint: disable=W0702
-                log.exception("Exception in ZeroMQ server thread, continuing")
+                if not self.node.stop_event.is_set():
+                    log.exception("Exception in ZeroMQ server thread, continuing")
         #
         log.debug("ZeroMQ server thread stopping")
+        #
+        zmq_socket_pull.close(linger=self.node.zmq_linger)
+        zmq_socket_pub.close(linger=self.node.zmq_linger)
+        #
+        log.debug("ZeroMQ server thread exiting")

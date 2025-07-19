@@ -1,12 +1,4 @@
-## Testing app for arbiter
-
-Launch redis container
-```
-docker run -d --rm --hostname arbiter-redis --name arbiter-redis \
-           -p 6379:6379 redis:alpine redis-server
-```
-
-Launch minion app with `python minion.py`
+# Testing app for arbiter
 
 ## Running tests
 

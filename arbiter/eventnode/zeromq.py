@@ -20,6 +20,7 @@
 """
 
 import time
+import queue
 
 from arbiter import log
 
@@ -36,8 +37,12 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             mute_first_failed_connections=0,
             log_errors=True,
             retry_interval=3.0,
+            join_threads_on_stop=False,
     ):  # pylint: disable=R0913,R0914
-        super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
+        super().__init__(
+            hmac_key, hmac_digest, callback_workers, log_errors,
+            use_emit_queue=True,
+        )
         #
         self.clone_config = {
             "type": "ZeroMQEventNode",
@@ -51,11 +56,13 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "mute_first_failed_connections": mute_first_failed_connections,
             "log_errors": log_errors,
             "retry_interval": retry_interval,
+            "join_threads_on_stop": join_threads_on_stop,
         }
         #
         self.retry_interval = retry_interval
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0
+        self.join_threads_on_stop = join_threads_on_stop
         #
         self.zeromq_connect_sub = connect_sub
         self.zeromq_connect_push = connect_push
@@ -65,26 +72,19 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self.zmq_gevent = is_runtime_gevent()
         #
         self.zmq_ctx = None
-        self.zmq_socket_sub = None
-        self.zmq_socket_push = None
+        self.zmq_linger = 5
 
     def start(self, emit_only=False):
         """ Start event node """
         if self.started:
             return
         #
-        try:
-            if self.zmq_gevent:
-                import zmq.green as zmq  # pylint: disable=C0415,E0401
-            else:
-                import zmq  # pylint: disable=C0415,E0401
-        except:  # pylint: disable=W0702
+        if self.zmq_gevent:
+            import zmq.green as zmq  # pylint: disable=C0415,E0401
+        else:
             import zmq  # pylint: disable=C0415,E0401
         #
         self.zmq_ctx = zmq.Context()
-        #
-        self.zmq_socket_push = self.zmq_ctx.socket(zmq.PUSH)
-        self.zmq_socket_push.connect(self.zeromq_connect_push)
         #
         super().start(emit_only)
 
@@ -93,61 +93,80 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         super().stop()
         #
         if self.started:
-            if self.zmq_socket_push is not None:
-                self.zmq_socket_push.close(linger=10)
-            #
-            if self.zmq_socket_sub is not None:
-                self.zmq_socket_sub.close(linger=10)
-            #
             self.zmq_ctx.term()
+            #
+            if self.join_threads_on_stop:
+                self.listening_thread.join(timeout=self.zmq_linger * 3)
+                self.emitting_thread.join(timeout=self.zmq_linger * 3)
+                #
+                for callback_thread in self.callback_threads:
+                    callback_thread.join(timeout=self.zmq_linger)
 
-    def emit_data(self, data):
-        """ Emit event data """
-        self.zmq_socket_push.send_multipart([self.zeromq_topic, data])
-
-    def listening_worker(self):  # pylint: disable=R0912
-        """ Listening thread: push event data to sync_queue """
-        try:
-            if self.zmq_gevent:
-                import zmq.green as zmq  # pylint: disable=C0415,E0401
-            else:
-                import zmq  # pylint: disable=C0415,E0401
-        except:  # pylint: disable=W0702
+    def emitting_worker(self):
+        """ Emitting thread: emit event data from emit_queue """
+        if self.zmq_gevent:
+            import zmq.green as zmq  # pylint: disable=C0415,E0401
+        else:
             import zmq  # pylint: disable=C0415,E0401
+        #
+        zmq_socket_push = self.zmq_ctx.socket(zmq.PUSH)  # pylint: disable=E1101
+        zmq_socket_push.setsockopt(zmq.LINGER, self.zmq_linger)
+        zmq_socket_push.connect(self.zeromq_connect_push)
         #
         while self.running:
             try:
-                self.zmq_socket_sub = self.zmq_ctx.socket(zmq.SUB)
-                self.zmq_socket_sub.connect(self.zeromq_connect_sub)
-                self.zmq_socket_sub.setsockopt(zmq.SUBSCRIBE, self.zeromq_topic)
-                #
-                self.ready_event.set()
-                #
-                while self.running:
-                    topic, message = self.zmq_socket_sub.recv_multipart()
-                    #
-                    if topic != self.zeromq_topic:
-                        continue
-                    #
-                    if not message:
-                        continue
-                    #
-                    self.sync_queue.put(message)
+                data = self.emit_queue.get(self.queue_get_timeout)
+                zmq_socket_push.send_multipart([self.zeromq_topic, data])
+            except queue.Empty:
+                pass
             except:  # pylint: disable=W0702
                 if self.running and self.log_errors:
-                    log.exception(
-                        "Exception in listening thread. Retrying in %s seconds", self.retry_interval
-                    )
+                    log.exception("Error during event emitting, skipping")
+        #
+        log.debug("ZeroMQ emitting thread stopping")
+        #
+        zmq_socket_push.close(linger=self.zmq_linger)
+        #
+        log.debug("ZeroMQ emitting thread exiting")
+
+
+    def listening_worker(self):  # pylint: disable=R0912
+        """ Listening thread: push event data to sync_queue """
+        if self.zmq_gevent:
+            import zmq.green as zmq  # pylint: disable=C0415,E0401
+        else:
+            import zmq  # pylint: disable=C0415,E0401
+        #
+        zmq_socket_sub = self.zmq_ctx.socket(zmq.SUB)  # pylint: disable=E1101
+        zmq_socket_sub.setsockopt(zmq.LINGER, self.zmq_linger)
+        zmq_socket_sub.connect(self.zeromq_connect_sub)
+        zmq_socket_sub.subscribe(self.zeromq_topic)
+        #
+        self.ready_event.set()
+        #
+        while self.running:
+            try:
+                topic, message = zmq_socket_sub.recv_multipart()  # pylint: disable=W0632
                 #
-                try:
-                    self.zmq_socket_sub.close(linger=10)
-                except:  # pylint: disable=W0702
-                    pass
+                if topic != self.zeromq_topic:
+                    continue
                 #
+                if not message:
+                    continue
+                #
+                self.sync_queue.put(message)
+            except:  # pylint: disable=W0702
                 if self.running:
+                    if self.log_errors:
+                        log.exception(
+                            "Exception in listening thread. Retrying in %s seconds",
+                            self.retry_interval,
+                        )
+                    #
                     time.sleep(self.retry_interval)
-            finally:
-                try:
-                    self.zmq_socket_sub.close(linger=10)  # TODO: handle ZeroMQ errors
-                except:  # pylint: disable=W0702
-                    pass
+        #
+        log.debug("ZeroMQ listening thread stopping")
+        #
+        zmq_socket_sub.close(linger=self.zmq_linger)
+        #
+        log.debug("ZeroMQ listening thread exiting")
