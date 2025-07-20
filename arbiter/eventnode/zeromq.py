@@ -21,6 +21,7 @@
 
 import time
 import queue
+import threading
 
 from arbiter import log
 
@@ -38,6 +39,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             log_errors=True,
             retry_interval=3.0,
             join_threads_on_stop=False,
+            shutdown_in_thread=True,
+            shutdown_join_timeout=5.0,
     ):  # pylint: disable=R0913,R0914
         super().__init__(
             hmac_key, hmac_digest, callback_workers, log_errors,
@@ -57,12 +60,17 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "log_errors": log_errors,
             "retry_interval": retry_interval,
             "join_threads_on_stop": join_threads_on_stop,
+            "shutdown_in_thread": shutdown_in_thread,
+            "shutdown_join_timeout": shutdown_join_timeout,
         }
         #
         self.retry_interval = retry_interval
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0
+        #
         self.join_threads_on_stop = join_threads_on_stop
+        self.shutdown_in_thread = shutdown_in_thread
+        self.shutdown_join_timeout = shutdown_join_timeout
         #
         self.zeromq_connect_sub = connect_sub
         self.zeromq_connect_push = connect_push
@@ -93,14 +101,24 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         super().stop()
         #
         if self.started:
-            self.zmq_ctx.term()
+            log.debug("Stop initiated")
             #
-            if self.join_threads_on_stop:
-                self.listening_thread.join(timeout=self.zmq_linger * 3)
-                self.emitting_thread.join(timeout=self.zmq_linger * 3)
-                #
-                for callback_thread in self.callback_threads:
-                    callback_thread.join(timeout=self.zmq_linger)
+            if self.shutdown_in_thread:
+                shutdown_thread = threading.Thread(target=self.shutdown, daemon=True)
+                shutdown_thread.start()
+                shutdown_thread.join(timeout=self.shutdown_join_timeout)
+            else:
+                self.shutdown()
+            #
+            # FIXME: should set started to false?
+
+    def shutdown(self):
+        """ Perform stop actions """
+        self.zmq_ctx.term()
+        #
+        if self.join_threads_on_stop:
+            self.listening_thread.join(timeout=self.zmq_linger * 1.5)
+            self.emitting_thread.join(timeout=self.zmq_linger * 1.5)
 
     def emitting_worker(self):
         """ Emitting thread: emit event data from emit_queue """
