@@ -33,9 +33,16 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
             self,
             bind_pub="tcp://*:5010",
             bind_pull="tcp://*:5011",
+            join_threads_on_stop=False,
+            shutdown_in_thread=True,
+            shutdown_join_timeout=5.0,
     ):
         self.bind_pub = bind_pub
         self.bind_pull = bind_pull
+        #
+        self.join_threads_on_stop = join_threads_on_stop
+        self.shutdown_in_thread = shutdown_in_thread
+        self.shutdown_join_timeout = shutdown_join_timeout
         #
         self.stop_event = threading.Event()
         self.started = False
@@ -74,12 +81,27 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
 
     def stop(self):
         """ Stop task node """
+        if not self.started:
+            return
+        #
         self.started = False
         self.stop_event.set()
         #
+        log.debug("Stop initiated")
+        #
+        if self.shutdown_in_thread:
+            shutdown_thread = threading.Thread(target=self.shutdown, daemon=True)
+            shutdown_thread.start()
+            shutdown_thread.join(timeout=self.shutdown_join_timeout)
+        else:
+            self.shutdown()
+
+    def shutdown(self):
+        """ Perform stop actions """
         self.zmq_ctx.term()
         #
-        self.zmq_server_thread.join(timeout=self.zmq_linger * 3)
+        if self.join_threads_on_stop:
+            self.zmq_server_thread.join(timeout=self.zmq_linger * 1.5)
 
 
 class ZeroMQServerThread(threading.Thread):  # pylint: disable=R0903
