@@ -34,20 +34,22 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
             bind_pub="tcp://*:5010",
             bind_pull="tcp://*:5011",
             join_threads_on_stop=False,
-            shutdown_in_thread=True,
+            shutdown_in_thread=False,
             shutdown_join_timeout=5.0,
+            shutdown_via_destroy=False,
     ):
+        self.gevent_runtime = is_runtime_gevent()
+        #
         self.bind_pub = bind_pub
         self.bind_pull = bind_pull
         #
         self.join_threads_on_stop = join_threads_on_stop
         self.shutdown_in_thread = shutdown_in_thread
         self.shutdown_join_timeout = shutdown_join_timeout
+        self.shutdown_via_destroy = shutdown_via_destroy or self.gevent_runtime
         #
         self.stop_event = threading.Event()
         self.started = False
-        #
-        self.gevent_runtime = is_runtime_gevent()
         #
         self.zmq_ctx = None
         self.zmq_linger = 5
@@ -98,7 +100,10 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
 
     def shutdown(self):
         """ Perform stop actions """
-        self.zmq_ctx.term()
+        if self.shutdown_via_destroy:
+            self.zmq_ctx.destroy()
+        else:
+            self.zmq_ctx.term()
         #
         if self.join_threads_on_stop:
             self.zmq_server_thread.join(timeout=self.zmq_linger * 1.5)

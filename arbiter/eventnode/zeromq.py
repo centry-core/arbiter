@@ -39,8 +39,9 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             log_errors=True,
             retry_interval=3.0,
             join_threads_on_stop=False,
-            shutdown_in_thread=True,
+            shutdown_in_thread=False,
             shutdown_join_timeout=5.0,
+            shutdown_via_destroy=False,
     ):  # pylint: disable=R0913,R0914
         super().__init__(
             hmac_key, hmac_digest, callback_workers, log_errors,
@@ -62,22 +63,24 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "join_threads_on_stop": join_threads_on_stop,
             "shutdown_in_thread": shutdown_in_thread,
             "shutdown_join_timeout": shutdown_join_timeout,
+            "shutdown_via_destroy": shutdown_via_destroy,
         }
         #
         self.retry_interval = retry_interval
         self.mute_first_failed_connections = mute_first_failed_connections
         self.failed_connections = 0
         #
+        self.zmq_gevent = is_runtime_gevent()
+        #
         self.join_threads_on_stop = join_threads_on_stop
         self.shutdown_in_thread = shutdown_in_thread
         self.shutdown_join_timeout = shutdown_join_timeout
+        self.shutdown_via_destroy = shutdown_via_destroy or self.zmq_gevent
         #
         self.zeromq_connect_sub = connect_sub
         self.zeromq_connect_push = connect_push
         #
         self.zeromq_topic = topic_format.format(topic).encode("utf-8")
-        #
-        self.zmq_gevent = is_runtime_gevent()
         #
         self.zmq_ctx = None
         self.zmq_linger = 5
@@ -114,7 +117,10 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
 
     def shutdown(self):
         """ Perform stop actions """
-        self.zmq_ctx.term()
+        if self.shutdown_via_destroy:
+            self.zmq_ctx.destroy()
+        else:
+            self.zmq_ctx.term()
         #
         if self.join_threads_on_stop:
             self.listening_thread.join(timeout=self.zmq_linger * 1.5)
