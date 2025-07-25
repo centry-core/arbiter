@@ -139,7 +139,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         while self.running:
             try:
-                data = self.emit_queue.get(self.queue_get_timeout)
+                data = self.emit_queue.get(timeout=self.queue_get_timeout)
                 zmq_socket_push.send_multipart([self.zeromq_topic, data])
             except queue.Empty:
                 pass

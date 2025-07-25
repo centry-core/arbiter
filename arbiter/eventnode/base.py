@@ -212,7 +212,7 @@ class EventNodeBase:  # pylint: disable=R0902
         """ Callback thread: call subscribers """
         while self.running:
             try:
-                body = self.sync_queue.get(self.queue_get_timeout)
+                body = self.sync_queue.get(timeout=self.queue_get_timeout)
                 #
                 if self.hmac_key is not None:
                     hmac_obj = hmac.new(self.hmac_key, digestmod=self.hmac_digest)
