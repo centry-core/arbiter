@@ -306,10 +306,7 @@ class TaskNodeWatcher(threading.Thread):  # pylint: disable=R0903
             }
         )
         #
-        self.node.event_node.emit(
-            "task_state_announce",
-            task_state
-        )
+        self.node.announce_task_state(task_state)
         #
         self.node.event_node.emit(
             "task_status_change",

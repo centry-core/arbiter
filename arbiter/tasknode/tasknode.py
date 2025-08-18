@@ -250,17 +250,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
         #
         task_id = self.generate_task_id()
         #
-        self.event_node.emit(
-            "task_state_announce",
-            {
-                "task_id": task_id,
-                "requestor": self.ident,
-                "runner": None,
-                "status": "pending",
-                "result": None,
-                "meta": meta,
-            }
-        )
+        self.announce_task_state({
+            "task_id": task_id,
+            "requestor": self.ident,
+            "runner": None,
+            "status": "pending",
+            "result": None,
+            "meta": meta,
+        })
         #
         self.event_node.emit(
             "task_status_change",
@@ -316,17 +313,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
                     #
                     return task_id
                 except:  # pylint: disable=W0702
-                    self.event_node.emit(
-                        "task_state_announce",
-                        {
-                            "task_id": task_id,
-                            "requestor": self.ident,
-                            "runner": None,
-                            "status": "stopped",
-                            "result": None,
-                            "meta": meta,
-                        }
-                    )
+                    self.announce_task_state({
+                        "task_id": task_id,
+                        "requestor": self.ident,
+                        "runner": None,
+                        "status": "stopped",
+                        "result": None,
+                        "meta": meta,
+                    })
                     #
                     self.event_node.emit(
                         "task_status_change",
@@ -567,17 +561,23 @@ class TaskNode:  # pylint: disable=R0902,R0904
     def on_state_announce(self, event_name, event_payload):
         _ = event_name
         #
-        if "for_requestor" in event_payload and event_payload.get("for_requestor") != self.ident:
+        if event_payload.get("announcer", None) == self.ident:
             return
         #
-        if "task_id" not in event_payload:
+        self._on_state_announce__update_global_task_state(event_payload)
+
+    def _on_state_announce__update_global_task_state(self, state):
+        if "for_requestor" in state and state.get("for_requestor") != self.ident:
             return
         #
-        task_id = event_payload.get("task_id")
-        task_status = event_payload.get("status", "unknown")
+        if "task_id" not in state:
+            return
+        #
+        task_id = state.get("task_id")
+        task_status = state.get("status", "unknown")
         #
         with self.lock:
-            self.global_task_state[task_id] = event_payload.copy()
+            self.global_task_state[task_id] = state.copy()
             self.known_task_ids.add(task_id)
             #
             if task_id not in self.state_events:
@@ -617,10 +617,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
             task_state = self.global_task_state[task_id].copy()
             task_state["for_requestor"] = event_payload.get("requestor", None)
             #
-            self.event_node.emit(
-                "task_state_announce",
-                task_state
-            )
+            self.announce_task_state(task_state)
         else:
             self.event_node.emit(
                 "task_state_reply",
@@ -793,17 +790,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
             }
         )
         #
-        self.event_node.emit(
-            "task_state_announce",
-            {
-                "task_id": event_payload.get("task_id", None),
-                "requestor": event_payload.get("requestor", None),
-                "runner": self.ident,
-                "status": "running",
-                "result": None,
-                "meta": event_payload.get("meta", None),
-            }
-        )
+        self.announce_task_state({
+            "task_id": event_payload.get("task_id", None),
+            "requestor": event_payload.get("requestor", None),
+            "runner": self.ident,
+            "status": "running",
+            "result": None,
+            "meta": event_payload.get("meta", None),
+        })
         #
         self.event_node.emit(
             "task_status_change",
@@ -840,6 +834,14 @@ class TaskNode:  # pylint: disable=R0902,R0904
                 break
         #
         return task_id
+
+    def announce_task_state(self, task_state):
+        """ Announce task state data """
+        state = task_state.copy()
+        self._on_state_announce__update_global_task_state(state)
+        #
+        state["announcer"] = self.ident
+        self.event_node.emit("task_state_announce", state)
 
     def execute_local_task(  # pylint: disable=R0913
             self, task_id, name, meta, args=None, kwargs=None, durable=False, pool=None,
