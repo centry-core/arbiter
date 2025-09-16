@@ -37,6 +37,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             use_ssl=False, ssl_verify=False,
             log_errors=True,
             retry_interval=3.0,
+            use_managed_identity=False,
     ):  # pylint: disable=R0913,R0914
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
@@ -54,6 +55,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "ssl_verify": ssl_verify,
             "log_errors": log_errors,
             "retry_interval": retry_interval,
+            "use_managed_identity": use_managed_identity,
         }
         #
         self.retry_interval = retry_interval
@@ -66,12 +68,22 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         self.redis_config = {
             "host": host,
             "port": port,
-            "password": password,
             #
             "health_check_interval": 10,
             "max_connections": 300,  # Get from config?
             "timeout": 60,
         }
+        #
+        if use_managed_identity:
+            from redis_entraid.cred_provider import *  # pylint: disable=C0415,E0401,W0401
+            #
+            credential_provider = create_from_default_azure_credential(  # pylint: disable=E0602
+                ("https://redis.azure.com/.default",),
+            )
+            #
+            self.redis_config["credential_provider"] = credential_provider
+        else:
+            self.redis_config["password"] = password
         #
         if use_ssl:
             from redis.connection import SSLConnection  # pylint: disable=C0415,E0401
