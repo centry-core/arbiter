@@ -75,7 +75,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
         }
         #
         if use_managed_identity:
-            from redis_entraid.cred_provider import *  # pylint: disable=C0415,E0401,W0401
+            from redis_entraid.cred_provider import create_from_default_azure_credential  # pylint: disable=C0415,E0401,W0401
             #
             credential_provider = create_from_default_azure_credential(  # pylint: disable=E0602
                 ("https://redis.azure.com/.default",),
