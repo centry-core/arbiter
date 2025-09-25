@@ -146,7 +146,9 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                 #
                 self.ready_event.set()
                 #
-                for message in pubsub.listen():
+                while self.running:
+                    message = pubsub.get_message(timeout=0.1)
+                    #
                     if not message:
                         continue
                     #
