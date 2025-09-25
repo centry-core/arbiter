@@ -76,6 +76,8 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "health_check_interval": 10,
             "max_connections": 300,  # Get from config?
             "timeout": 60,
+            #
+            "socket_keepalive": True,
         }
         #
         if use_managed_identity:
