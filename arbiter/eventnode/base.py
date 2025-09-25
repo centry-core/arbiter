@@ -40,6 +40,7 @@ class EventNodeBase:  # pylint: disable=R0902
             callback_workers=1,
             log_errors=True,
             use_emit_queue=False,
+            emitting_workers=1,
     ):  # pylint: disable=R0913
         self.clone_config = None
         #
@@ -64,11 +65,16 @@ class EventNodeBase:  # pylint: disable=R0902
         self.use_emit_queue = use_emit_queue
         #
         self.emit_queue = None
-        self.emitting_thread = None
+        self.emitting_threads = None
         #
         if self.use_emit_queue:
             self.emit_queue = queue.SimpleQueue()
-            self.emitting_thread = threading.Thread(target=self.emitting_worker, daemon=True)
+            self.emitting_threads = []
+            #
+            for _ in range(emitting_workers):
+                self.emitting_threads.append(
+                    threading.Thread(target=self.emitting_worker, daemon=True)
+                )
         #
         self.listening_thread = threading.Thread(target=self.listening_worker, daemon=True)
         self.callback_threads = []
@@ -95,7 +101,8 @@ class EventNodeBase:  # pylint: disable=R0902
             return
         #
         if self.use_emit_queue:
-            self.emitting_thread.start()
+            for emitting_thread in self.emitting_threads:
+                emitting_thread.start()
         #
         if emit_only:
             self.ready_event.set()

@@ -20,6 +20,7 @@
 """
 
 import time
+import queue
 
 from arbiter import log
 
@@ -39,7 +40,10 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             retry_interval=3.0,
             use_managed_identity=False,
     ):  # pylint: disable=R0913,R0914
-        super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
+        super().__init__(
+            hmac_key, hmac_digest, callback_workers, log_errors,
+            use_emit_queue=True, emitting_workers=10,  # Get from config?
+        )
         #
         self.clone_config = {
             "type": "RedisEventNode",
@@ -119,9 +123,17 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             if self.redis_pool is not None:
                 self.redis_pool.close()
 
-    def emit_data(self, data):
-        """ Emit event data """
-        self.redis.publish(self.redis_event_queue, data)
+    def emitting_worker(self):
+        """ Emitting thread: emit event data from emit_queue """
+        while self.running:
+            try:
+                data = self.emit_queue.get(timeout=self.queue_get_timeout)
+                self.redis.publish(self.redis_event_queue, data)
+            except queue.Empty:
+                pass
+            except:  # pylint: disable=W0702
+                if self.running and self.log_errors:
+                    log.exception("Error during event emitting, skipping")
 
     def listening_worker(self):
         """ Listening thread: push event data to sync_queue """
