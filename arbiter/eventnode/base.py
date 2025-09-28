@@ -79,10 +79,15 @@ class EventNodeBase:  # pylint: disable=R0902
         self.listening_thread = threading.Thread(target=self.listening_worker, daemon=True)
         self.callback_threads = []
         #
-        for _ in range(callback_workers):
+        if callback_workers is None:
             self.callback_threads.append(
-                threading.Thread(target=self.callback_worker, daemon=True)
+                threading.Thread(target=self.callback_spawner, daemon=True)
             )
+        else:
+            for _ in range(callback_workers):
+                self.callback_threads.append(
+                    threading.Thread(target=self.callback_worker, daemon=True)
+                )
         #
         self.ready_event = threading.Event()
         self.can_emit = True
@@ -215,58 +220,13 @@ class EventNodeBase:  # pylint: disable=R0902
             while hook in self.after_callback_hooks:
                 self.after_callback_hooks.remove(hook)
 
-    def callback_worker(self):  # pylint: disable=R0912
+    def callback_worker(self):
         """ Callback thread: call subscribers """
         while self.running:
             try:
-                body = self.sync_queue.get(timeout=self.queue_get_timeout)
+                data = self.sync_queue.get(timeout=self.queue_get_timeout)
                 #
-                if self.hmac_key is not None:
-                    hmac_obj = hmac.new(self.hmac_key, digestmod=self.hmac_digest)
-                    hmac_size = hmac_obj.digest_size
-                    #
-                    body_digest = body[-hmac_size:]
-                    body = body[:-hmac_size]
-                    #
-                    digest = hmac.digest(self.hmac_key, body, self.hmac_digest)
-                    #
-                    if not hmac.compare_digest(body_digest, digest):
-                        if self.log_errors:
-                            log.error("Invalid event digest, skipping")
-                        continue
-                #
-                event = pickle.loads(gzip.decompress(body))
-                #
-                event_name = event.get("name")
-                event_payload = event.get("payload")
-                #
-                with self.event_lock:
-                    callbacks = self.catch_all_callbacks.copy()
-                    if event_name in self.event_callbacks:
-                        callbacks.extend(self.event_callbacks[event_name])
-                #
-                for callback in callbacks:
-                    for hook in hooks.before_callback_hooks + self.before_callback_hooks:
-                        try:
-                            hook(callback, event_name, event_payload)
-                        except:  # pylint: disable=W0702
-                            if self.log_errors:
-                                log.exception("Before callback hook failed, skipping")
-                    #
-                    try:
-                        callback_result = callback(event_name, event_payload)
-                    except:  # pylint: disable=W0702
-                        if self.log_errors:
-                            log.exception("Event callback failed, skipping")
-                        #
-                        callback_result = None  # FIXME: pass exceptions to after_callback_hooks?
-                    #
-                    for hook in hooks.after_callback_hooks + self.after_callback_hooks:
-                        try:
-                            hook(callback, callback_result, event_name, event_payload)
-                        except:  # pylint: disable=W0702
-                            if self.log_errors:
-                                log.exception("After callback hook failed, skipping")
+                self.process_data(data)
             except queue.Empty:
                 pass
             except:  # pylint: disable=W0702
@@ -274,3 +234,77 @@ class EventNodeBase:  # pylint: disable=R0902
                     log.exception("Error during event processing, skipping")
         #
         log.debug("Callback worker thread exiting")
+
+    def callback_spawner(self):
+        """ Callback thread: call subscribers in separate thread """
+        while self.running:
+            try:
+                data = self.sync_queue.get(timeout=self.queue_get_timeout)
+                #
+                spawned_thread = threading.Thread(
+                    target=self.process_data,
+                    args=[data],
+                    daemon=True,
+                )
+                spawned_thread.start()
+            except queue.Empty:
+                pass
+            except:  # pylint: disable=W0702
+                if self.log_errors:
+                    log.exception("Error during event processing, skipping")
+        #
+        log.debug("Callback worker thread exiting")
+
+    def process_data(self, data):  # pylint: disable=R0912
+        """ Process: call subscribers """
+        try:
+            if self.hmac_key is not None:
+                hmac_obj = hmac.new(self.hmac_key, digestmod=self.hmac_digest)
+                hmac_size = hmac_obj.digest_size
+                #
+                body_digest = data[-hmac_size:]
+                data = data[:-hmac_size]
+                #
+                digest = hmac.digest(self.hmac_key, data, self.hmac_digest)
+                #
+                if not hmac.compare_digest(body_digest, digest):
+                    if self.log_errors:
+                        log.error("Invalid event digest, skipping")
+                    #
+                    return
+            #
+            event = pickle.loads(gzip.decompress(data))
+            #
+            event_name = event.get("name")
+            event_payload = event.get("payload")
+            #
+            with self.event_lock:
+                callbacks = self.catch_all_callbacks.copy()
+                if event_name in self.event_callbacks:
+                    callbacks.extend(self.event_callbacks[event_name])
+            #
+            for callback in callbacks:
+                for hook in hooks.before_callback_hooks + self.before_callback_hooks:
+                    try:
+                        hook(callback, event_name, event_payload)
+                    except:  # pylint: disable=W0702
+                        if self.log_errors:
+                            log.exception("Before callback hook failed, skipping")
+                #
+                try:
+                    callback_result = callback(event_name, event_payload)
+                except:  # pylint: disable=W0702
+                    if self.log_errors:
+                        log.exception("Event callback failed, skipping")
+                    #
+                    callback_result = None  # FIXME: pass exceptions to after_callback_hooks?
+                #
+                for hook in hooks.after_callback_hooks + self.after_callback_hooks:
+                    try:
+                        hook(callback, callback_result, event_name, event_payload)
+                    except:  # pylint: disable=W0702
+                        if self.log_errors:
+                            log.exception("After callback hook failed, skipping")
+        except:  # pylint: disable=W0702
+            if self.log_errors:
+                log.exception("Error during event processing, skipping")

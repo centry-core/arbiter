@@ -124,7 +124,9 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         if self.join_threads_on_stop:
             self.listening_thread.join(timeout=self.zmq_linger * 1.5)
-            self.emitting_thread.join(timeout=self.zmq_linger * 1.5)
+            #
+            for emitting_thread in self.emitting_threads:
+                emitting_thread.join(timeout=self.zmq_linger * 1.5)
 
     def emitting_worker(self):
         """ Emitting thread: emit event data from emit_queue """
