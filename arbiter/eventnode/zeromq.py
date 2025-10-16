@@ -38,10 +38,24 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             mute_first_failed_connections=0,
             log_errors=True,
             retry_interval=3.0,
+            #
             join_threads_on_stop=False,
             shutdown_in_thread=False,
             shutdown_join_timeout=5.0,
             shutdown_via_destroy=False,
+            #
+            sockopt_linger=1000,
+            #
+            sockopt_tcp_keepalive=None,
+            sockopt_tcp_keepalive_cnt=None,
+            sockopt_tcp_keepalive_idle=None,
+            sockopt_tcp_keepalive_intvl=None,
+            #
+            sockopt_immediate=None,
+            #
+            sockopt_heartbeat_ivl=None,
+            sockopt_heartbeat_ttl=None,
+            sockopt_heartbeat_timeout=None,
     ):  # pylint: disable=R0913,R0914
         super().__init__(
             hmac_key, hmac_digest, callback_workers, log_errors,
@@ -64,6 +78,15 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "shutdown_in_thread": shutdown_in_thread,
             "shutdown_join_timeout": shutdown_join_timeout,
             "shutdown_via_destroy": shutdown_via_destroy,
+            "sockopt_linger": sockopt_linger,
+            "sockopt_tcp_keepalive": sockopt_tcp_keepalive,
+            "sockopt_tcp_keepalive_cnt": sockopt_tcp_keepalive_cnt,
+            "sockopt_tcp_keepalive_idle": sockopt_tcp_keepalive_idle,
+            "sockopt_tcp_keepalive_intvl": sockopt_tcp_keepalive_intvl,
+            "sockopt_immediate": sockopt_immediate,
+            "sockopt_heartbeat_ivl": sockopt_heartbeat_ivl,
+            "sockopt_heartbeat_ttl": sockopt_heartbeat_ttl,
+            "sockopt_heartbeat_timeout": sockopt_heartbeat_timeout,
         }
         #
         self.retry_interval = retry_interval
@@ -77,13 +100,25 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self.shutdown_join_timeout = shutdown_join_timeout
         self.shutdown_via_destroy = shutdown_via_destroy or self.zmq_gevent
         #
+        self.sockopt_linger = sockopt_linger
+        #
+        self.sockopt_tcp_keepalive = sockopt_tcp_keepalive
+        self.sockopt_tcp_keepalive_cnt = sockopt_tcp_keepalive_cnt
+        self.sockopt_tcp_keepalive_idle = sockopt_tcp_keepalive_idle
+        self.sockopt_tcp_keepalive_intvl = sockopt_tcp_keepalive_intvl
+        #
+        self.sockopt_immediate = sockopt_immediate
+        #
+        self.sockopt_heartbeat_ivl = sockopt_heartbeat_ivl
+        self.sockopt_heartbeat_ttl = sockopt_heartbeat_ttl
+        self.sockopt_heartbeat_timeout = sockopt_heartbeat_timeout
+        #
         self.zeromq_connect_sub = connect_sub
         self.zeromq_connect_push = connect_push
         #
         self.zeromq_topic = topic_format.format(topic).encode("utf-8")
         #
         self.zmq_ctx = None
-        self.zmq_linger = 5
 
     def start(self, emit_only=False):
         """ Start event node """
@@ -118,15 +153,38 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
     def shutdown(self):
         """ Perform stop actions """
         if self.shutdown_via_destroy:
-            self.zmq_ctx.destroy()
+            self.zmq_ctx.destroy(self.sockopt_linger)
         else:
             self.zmq_ctx.term()
         #
         if self.join_threads_on_stop:
-            self.listening_thread.join(timeout=self.zmq_linger * 1.5)
+            self.listening_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
             #
             for emitting_thread in self.emitting_threads:
-                emitting_thread.join(timeout=self.zmq_linger * 1.5)
+                emitting_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
+
+    def _set_sockopts(self, zmq, zmq_socket):
+        if self.sockopt_linger is not None:
+            zmq_socket.setsockopt(zmq.LINGER, self.sockopt_linger)
+        #
+        if self.sockopt_tcp_keepalive is not None:
+            zmq_socket.setsockopt(zmq.TCP_KEEPALIVE, self.sockopt_tcp_keepalive)
+        if self.sockopt_tcp_keepalive_cnt is not None:
+            zmq_socket.setsockopt(zmq.TCP_KEEPALIVE_CNT, self.sockopt_tcp_keepalive_cnt)
+        if self.sockopt_tcp_keepalive_idle is not None:
+            zmq_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, self.sockopt_tcp_keepalive_idle)
+        if self.sockopt_tcp_keepalive_intvl is not None:
+            zmq_socket.setsockopt(zmq.TCP_KEEPALIVE_INTVL, self.sockopt_tcp_keepalive_intvl)
+        #
+        if self.sockopt_immediate is not None:
+            zmq_socket.setsockopt(zmq.IMMEDIATE, self.sockopt_immediate)
+        #
+        if self.sockopt_heartbeat_ivl is not None:
+            zmq_socket.setsockopt(zmq.HEARTBEAT_IVL, self.sockopt_heartbeat_ivl)
+        if self.sockopt_heartbeat_ttl is not None:
+            zmq_socket.setsockopt(zmq.HEARTBEAT_TTL, self.sockopt_heartbeat_ttl)
+        if self.sockopt_heartbeat_timeout is not None:
+            zmq_socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, self.sockopt_heartbeat_timeout)
 
     def emitting_worker(self):
         """ Emitting thread: emit event data from emit_queue """
@@ -136,7 +194,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             import zmq  # pylint: disable=C0415,E0401
         #
         zmq_socket_push = self.zmq_ctx.socket(zmq.PUSH)  # pylint: disable=E1101
-        zmq_socket_push.setsockopt(zmq.LINGER, self.zmq_linger)
+        self._set_sockopts(zmq, zmq_socket_push)
         zmq_socket_push.connect(self.zeromq_connect_push)
         #
         while self.running:
@@ -151,7 +209,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         log.debug("ZeroMQ emitting thread stopping")
         #
-        zmq_socket_push.close(linger=self.zmq_linger)
+        zmq_socket_push.close(linger=self.sockopt_linger)
         #
         log.debug("ZeroMQ emitting thread exiting")
 
@@ -164,7 +222,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             import zmq  # pylint: disable=C0415,E0401
         #
         zmq_socket_sub = self.zmq_ctx.socket(zmq.SUB)  # pylint: disable=E1101
-        zmq_socket_sub.setsockopt(zmq.LINGER, self.zmq_linger)
+        self._set_sockopts(zmq, zmq_socket_sub)
         zmq_socket_sub.connect(self.zeromq_connect_sub)
         zmq_socket_sub.subscribe(self.zeromq_topic)
         #
@@ -195,6 +253,6 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         log.debug("ZeroMQ listening thread stopping")
         #
-        zmq_socket_sub.close(linger=self.zmq_linger)
+        zmq_socket_sub.close(linger=self.sockopt_linger)
         #
         log.debug("ZeroMQ listening thread exiting")
