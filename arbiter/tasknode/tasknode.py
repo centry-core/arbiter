@@ -102,6 +102,7 @@ class TaskNode:  # pylint: disable=R0902,R0904
         self.thread_scan_interval = thread_scan_interval
         #
         self.lock = threading.Lock()
+        self.start_task_rlock = threading.RLock()
         self.stop_event = threading.Event()
         self.started = False
         #
@@ -763,59 +764,60 @@ class TaskNode:  # pylint: disable=R0902,R0904
         if event_payload.get("pool", None) != self.pool:
             return
         #
-        if self.task_limit is not None and len(self.running_tasks) >= self.task_limit:
-            return
-        #
-        if self.task_approver is not None:
-            try:
-                if not self.task_approver(event_name, event_payload):
-                    return
-            except:  # pylint: disable=W0702
+        with self.start_task_rlock:
+            if self.task_limit is not None and len(self.running_tasks) >= self.task_limit:
                 return
-        #
-        approver = self.task_registry[task_name][1]
-        #
-        if approver is not None:
-            try:
-                if not approver(event_name, event_payload):
+            #
+            if self.task_approver is not None:
+                try:
+                    if not self.task_approver(event_name, event_payload):
+                        return
+                except:  # pylint: disable=W0702
                     return
-            except:  # pylint: disable=W0702
-                return
-        #
-        self.event_node.emit(
-            "task_start_ack",
-            {
-                "for_requestor": event_payload.get("requestor", None),
-                "sync_queue": event_payload.get("sync_queue", None),
-            }
-        )
-        #
-        self.announce_task_state({
-            "task_id": event_payload.get("task_id", None),
-            "requestor": event_payload.get("requestor", None),
-            "runner": self.ident,
-            "status": "running",
-            "result": None,
-            "meta": event_payload.get("meta", None),
-        })
-        #
-        self.event_node.emit(
-            "task_status_change",
-            {
+            #
+            approver = self.task_registry[task_name][1]
+            #
+            if approver is not None:
+                try:
+                    if not approver(event_name, event_payload):
+                        return
+                except:  # pylint: disable=W0702
+                    return
+            #
+            self.event_node.emit(
+                "task_start_ack",
+                {
+                    "for_requestor": event_payload.get("requestor", None),
+                    "sync_queue": event_payload.get("sync_queue", None),
+                }
+            )
+            #
+            self.announce_task_state({
                 "task_id": event_payload.get("task_id", None),
+                "requestor": event_payload.get("requestor", None),
+                "runner": self.ident,
                 "status": "running",
-            }
-        )
-        #
-        self.execute_local_task(
-            event_payload.get("task_id", None),
-            event_payload.get("name", None),
-            event_payload.get("meta", None),
-            event_payload.get("args", None),
-            event_payload.get("kwargs", None),
-            event_payload.get("durable", False),
-            event_payload.get("pool", None),
-        )
+                "result": None,
+                "meta": event_payload.get("meta", None),
+            })
+            #
+            self.event_node.emit(
+                "task_status_change",
+                {
+                    "task_id": event_payload.get("task_id", None),
+                    "status": "running",
+                }
+            )
+            #
+            self.execute_local_task(
+                event_payload.get("task_id", None),
+                event_payload.get("name", None),
+                event_payload.get("meta", None),
+                event_payload.get("args", None),
+                event_payload.get("kwargs", None),
+                event_payload.get("durable", False),
+                event_payload.get("pool", None),
+            )
 
     #
     # Tools
