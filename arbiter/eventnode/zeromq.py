@@ -57,6 +57,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             sockopt_heartbeat_ivl=None,
             sockopt_heartbeat_ttl=None,
             sockopt_heartbeat_timeout=None,
+            #
+            connection_wait_interval=5.0,
     ):  # pylint: disable=R0913,R0914
         super().__init__(
             hmac_key, hmac_digest, callback_workers, log_errors,
@@ -113,6 +115,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self.sockopt_heartbeat_ivl = sockopt_heartbeat_ivl
         self.sockopt_heartbeat_ttl = sockopt_heartbeat_ttl
         self.sockopt_heartbeat_timeout = sockopt_heartbeat_timeout
+        #
+        self.connection_wait_interval = connection_wait_interval
         #
         self.zeromq_connect_sub = connect_sub
         self.zeromq_connect_push = connect_push
@@ -207,7 +211,13 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         )
         zmq_monitor_thread.start()
         #
-        self.emitting_ready_event.wait()  # TODO: timeout with warning
+        while self.running:
+            wait_result = self.emitting_ready_event.wait(self.connection_wait_interval)
+            #
+            if wait_result is True:
+                break
+            #
+            log.warning("Emitting worker is not connected yet, waiting")
         #
         while self.running:
             try:
@@ -243,7 +253,13 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         )
         zmq_monitor_thread.start()
         #
-        self.listening_ready_event.wait()  # TODO: timeout with warning
+        while self.running:
+            wait_result = self.listening_ready_event.wait(self.connection_wait_interval)
+            #
+            if wait_result is True:
+                break
+            #
+            log.warning("Listening worker is not connected yet, waiting")
         #
         while self.running:
             try:
@@ -290,6 +306,7 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
         else:
             import zmq  # pylint: disable=C0415,E0401,E1101
         #
+        import zmq.error  # pylint: disable=C0415,E0401,E1101
         from zmq.utils.monitor import recv_monitor_message  # pylint: disable=C0415,E0401,E1101
         #
         monitor_stopped = False
@@ -299,7 +316,7 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
                 while self.monitor_socket.poll():
                     event_data = recv_monitor_message(self.monitor_socket)
                     #
-                    log.info("Event: %s", event_data)
+                    log.debug("ZeroMQ event: %s", event_data)
                     #
                     if event_data["event"] == zmq.EVENT_MONITOR_STOPPED:
                         monitor_stopped = True
@@ -307,7 +324,12 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
                     #
                     if event_data["event"] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
                         self.ready_event.set()
-            except:  # pylint: disable=W0702
-                log.exception("Monitor exception")
+            except Exception as exc:  # pylint: disable=W0718
+                if not isinstance(exc, zmq.error.ContextTerminated) and self.node.log_errors:
+                    log.exception("Monitor exception")
+        #
+        log.debug("ZeroMQ monitoring thread stopping")
         #
         self.monitor_socket.close()
+        #
+        log.debug("ZeroMQ monitoring thread exiting")
