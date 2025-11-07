@@ -294,7 +294,7 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
         #
         monitor_stopped = False
         #
-        while self.node.running and not monitor_stopped:  # TODO: try...except
+        while self.node.running and not monitor_stopped:
             try:
                 while self.monitor_socket.poll():
                     event_data = recv_monitor_message(self.monitor_socket)
@@ -309,3 +309,5 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
                         self.ready_event.set()
             except:  # pylint: disable=W0702
                 log.exception("Monitor exception")
+        #
+        self.monitor_socket.close()
