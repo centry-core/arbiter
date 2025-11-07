@@ -22,6 +22,7 @@
 import time
 import queue
 import threading
+import struct
 
 from arbiter import log
 
@@ -39,7 +40,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             log_errors=True,
             retry_interval=3.0,
             #
-            join_threads_on_stop=False,
+            join_threads_on_stop=True,
             shutdown_in_thread=False,
             shutdown_join_timeout=5.0,
             shutdown_via_destroy=False,
@@ -162,6 +163,9 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             #
             for emitting_thread in self.emitting_threads:
                 emitting_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
+            #
+            for callback_thread in self.callback_threads:
+                callback_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
 
     def _set_sockopts(self, zmq, zmq_socket):
         if self.sockopt_linger is not None:
@@ -197,8 +201,13 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self._set_sockopts(zmq, zmq_socket_push)
         zmq_socket_push.connect(self.zeromq_connect_push)
         #
-        time.sleep(1)  # TODO: use ZMQ monitor later (e.g. wait_for_connected)
-        self.emitting_ready_event.set()
+        zmq_socket_monitor = zmq_socket_push.get_monitor_socket()
+        zmq_monitor_thread = ZeroMQMonitorThread(
+            self, zmq_socket_monitor, self.emitting_ready_event
+        )
+        zmq_monitor_thread.start()
+        #
+        self.emitting_ready_event.wait()  # TODO: timeout with warning
         #
         while self.running:
             try:
@@ -216,7 +225,6 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         log.debug("ZeroMQ emitting thread exiting")
 
-
     def listening_worker(self):  # pylint: disable=R0912
         """ Listening thread: push event data to sync_queue """
         if self.zmq_gevent:
@@ -229,8 +237,13 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         zmq_socket_sub.connect(self.zeromq_connect_sub)
         zmq_socket_sub.subscribe(self.zeromq_topic)
         #
-        time.sleep(1)  # TODO: use ZMQ monitor later (e.g. wait_for_connected)
-        self.listening_ready_event.set()
+        zmq_socket_monitor = zmq_socket_sub.get_monitor_socket()
+        zmq_monitor_thread = ZeroMQMonitorThread(
+            self, zmq_socket_monitor, self.listening_ready_event
+        )
+        zmq_monitor_thread.start()
+        #
+        self.listening_ready_event.wait()  # TODO: timeout with warning
         #
         while self.running:
             try:
@@ -258,3 +271,38 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         zmq_socket_sub.close(linger=self.sockopt_linger)
         #
         log.debug("ZeroMQ listening thread exiting")
+
+
+class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
+    """ ZeroMQ: monitor """
+
+    def __init__(self, node, monitor_socket, ready_event):
+        super().__init__(daemon=True)
+        #
+        self.node = node
+        self.monitor_socket = monitor_socket
+        self.ready_event = ready_event
+
+    def run(self):
+        """ Run thread """
+        if self.node.gevent_runtime:
+            import zmq.green as zmq  # pylint: disable=C0415,E0401,E1101
+        else:
+            import zmq  # pylint: disable=C0415,E0401,E1101
+        #
+        from zmq.utils.monitor import recv_monitor_message  # pylint: disable=C0415,E0401,E1101
+        #
+        monitor_stopped = False
+        #
+        while self.node.running and not monitor_stopped:  # TODO: try...except
+            while self.monitor_socket.poll():
+                event_data = recv_monitor_message(self.monitor_socket)
+                #
+                log.info("Event: %s", event_data)
+                #
+                if event_data["event"] == zmq.EVENT_MONITOR_STOPPED:
+                    monitor_stopped = True
+                    break
+                #
+                if event_data["event"] == zmq.EVENT_CONNECTED:
+                    self.ready_event.set()
