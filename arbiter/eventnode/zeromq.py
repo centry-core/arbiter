@@ -295,14 +295,17 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
         monitor_stopped = False
         #
         while self.node.running and not monitor_stopped:  # TODO: try...except
-            while self.monitor_socket.poll():
-                event_data = recv_monitor_message(self.monitor_socket)
-                #
-                log.info("Event: %s", event_data)
-                #
-                if event_data["event"] == zmq.EVENT_MONITOR_STOPPED:
-                    monitor_stopped = True
-                    break
-                #
-                if event_data["event"] == zmq.EVENT_CONNECTED:
-                    self.ready_event.set()
+            try:
+                while self.monitor_socket.poll():
+                    event_data = recv_monitor_message(self.monitor_socket)
+                    #
+                    log.info("Event: %s", event_data)
+                    #
+                    if event_data["event"] == zmq.EVENT_MONITOR_STOPPED:
+                        monitor_stopped = True
+                        break
+                    #
+                    if event_data["event"] == zmq.EVENT_CONNECTED:
+                        self.ready_event.set()
+            except:  # pylint: disable=W0702
+                log.exception("Monitor exception")
