@@ -285,7 +285,7 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
 
     def run(self):
         """ Run thread """
-        if self.node.gevent_runtime:
+        if self.node.zmq_gevent:
             import zmq.green as zmq  # pylint: disable=C0415,E0401,E1101
         else:
             import zmq  # pylint: disable=C0415,E0401,E1101
