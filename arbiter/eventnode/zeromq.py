@@ -90,6 +90,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "sockopt_heartbeat_ivl": sockopt_heartbeat_ivl,
             "sockopt_heartbeat_ttl": sockopt_heartbeat_ttl,
             "sockopt_heartbeat_timeout": sockopt_heartbeat_timeout,
+            "connection_wait_interval": connection_wait_interval,
         }
         #
         self.retry_interval = retry_interval
