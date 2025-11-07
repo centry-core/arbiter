@@ -103,7 +103,7 @@ class SocketIOEventNode(EventNodeBase):  # pylint: disable=R0902
         while self.running:
             try:
                 self.sio.on("eventnode_event", self._listening_callback)
-                self.ready_event.set()
+                self.listening_ready_event.set()
                 self.sio.wait()
             except:  # pylint: disable=W0702
                 if self.log_errors:

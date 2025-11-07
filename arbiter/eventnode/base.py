@@ -89,7 +89,9 @@ class EventNodeBase:  # pylint: disable=R0902
                     threading.Thread(target=self.callback_worker, daemon=True)
                 )
         #
-        self.ready_event = threading.Event()
+        self.emitting_ready_event = threading.Event()
+        self.listening_ready_event = threading.Event()
+        #
         self.can_emit = True
         self.started = False
 
@@ -108,16 +110,20 @@ class EventNodeBase:  # pylint: disable=R0902
         if self.use_emit_queue:
             for emitting_thread in self.emitting_threads:
                 emitting_thread.start()
+        else:
+            self.emitting_ready_event.set()
         #
         if emit_only:
-            self.ready_event.set()
+            self.listening_ready_event.set()
         else:
             self.listening_thread.start()
             #
             for callback_thread in self.callback_threads:
                 callback_thread.start()
         #
-        self.ready_event.wait()
+        self.emitting_ready_event.wait()
+        self.listening_ready_event.wait()
+        #
         self.started = True
 
     def stop(self):

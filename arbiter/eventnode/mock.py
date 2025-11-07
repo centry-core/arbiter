@@ -47,4 +47,4 @@ class MockEventNode(EventNodeBase):  # pylint: disable=R0902
 
     def listening_worker(self):
         """ Listening thread: push event data to sync_queue """
-        self.ready_event.set()
+        self.listening_ready_event.set()

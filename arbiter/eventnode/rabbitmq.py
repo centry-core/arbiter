@@ -119,7 +119,7 @@ class EventNode(EventNodeBase):  # pylint: disable=R0902
                     auto_ack=True
                 )
                 #
-                self.ready_event.set()
+                self.listening_ready_event.set()
                 #
                 channel.start_consuming()
             except:  # pylint: disable=W0702

@@ -132,7 +132,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
                 pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
                 pubsub.subscribe(self.redis_event_queue)
                 #
-                self.ready_event.set()
+                self.listening_ready_event.set()
                 #
                 for message in pubsub.listen():
                     if not message:
