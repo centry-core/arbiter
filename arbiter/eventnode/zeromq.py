@@ -305,7 +305,7 @@ class ZeroMQMonitorThread(threading.Thread):  # pylint: disable=R0903
                         monitor_stopped = True
                         break
                     #
-                    if event_data["event"] == zmq.EVENT_CONNECTED:
+                    if event_data["event"] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
                         self.ready_event.set()
             except:  # pylint: disable=W0702
                 log.exception("Monitor exception")
