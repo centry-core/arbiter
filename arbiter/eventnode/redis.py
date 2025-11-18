@@ -31,13 +31,14 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
     """ Event node (redis) - allows to subscribe to events and to emit new events """
 
     def __init__(
-            self, host, port, password, event_queue="events",
+            self, host, port=6379, password=None, event_queue="events",
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             mute_first_failed_connections=0,
             use_ssl=False, ssl_verify=False,
             log_errors=True,
             retry_interval=3.0,
             use_managed_identity=False,
+            username=None,
     ):  # pylint: disable=R0913,R0914
         super().__init__(hmac_key, hmac_digest, callback_workers, log_errors)
         #
@@ -56,6 +57,7 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             "log_errors": log_errors,
             "retry_interval": retry_interval,
             "use_managed_identity": use_managed_identity,
+            "username": username,
         }
         #
         self.retry_interval = retry_interval
@@ -85,7 +87,11 @@ class RedisEventNode(EventNodeBase):  # pylint: disable=R0902
             #
             self.redis_config["credential_provider"] = credential_provider
         else:
-            self.redis_config["password"] = password
+            if password is not None:
+                self.redis_config["password"] = password
+            #
+            if username is not None:
+                self.redis_config["username"] = username
         #
         if use_ssl:
             from redis.connection import SSLConnection  # pylint: disable=C0415,E0401
