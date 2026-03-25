@@ -33,12 +33,16 @@ from ..tools.pylon import is_runtime_gevent
 class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
     """ Event node (ZMQ) - allows to subscribe to events and to emit new events """
 
+    socket_poll_timeout = 1000
+
     def __init__(
             self, connect_sub, connect_push, topic="events", topic_format="[{}]",
             hmac_key=None, hmac_digest="sha512", callback_workers=1,
             mute_first_failed_connections=0,
             log_errors=True,
             retry_interval=3.0,
+            #
+            shutdown_send_timeout=15.0,
             #
             join_threads_on_stop=True,
             shutdown_in_thread=False,
@@ -77,6 +81,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             "mute_first_failed_connections": mute_first_failed_connections,
             "log_errors": log_errors,
             "retry_interval": retry_interval,
+            "shutdown_send_timeout": shutdown_send_timeout,
             "join_threads_on_stop": join_threads_on_stop,
             "shutdown_in_thread": shutdown_in_thread,
             "shutdown_join_timeout": shutdown_join_timeout,
@@ -99,6 +104,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         self.zmq_gevent = is_runtime_gevent()
         #
+        self.shutdown_send_timeout = shutdown_send_timeout
         self.join_threads_on_stop = join_threads_on_stop
         self.shutdown_in_thread = shutdown_in_thread
         self.shutdown_join_timeout = shutdown_join_timeout
@@ -125,6 +131,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self.zeromq_topic = topic_format.format(topic).encode("utf-8")
         #
         self.zmq_ctx = None
+        self.pending_emit_count = 0
+        self.pending_emit_lock = threading.Lock()
 
     def start(self, emit_only=False):
         """ Start event node """
@@ -142,6 +150,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
 
     def stop(self):
         """ Stop event node """
+        self.can_emit = False
         super().stop()
         #
         if self.started:
@@ -150,7 +159,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             if self.shutdown_in_thread:
                 shutdown_thread = threading.Thread(target=self.shutdown, daemon=True)
                 shutdown_thread.start()
-                shutdown_thread.join(timeout=self.shutdown_join_timeout)
+                shutdown_thread.join(timeout=self._get_shutdown_wait_timeout())
             else:
                 self.shutdown()
             #
@@ -158,19 +167,73 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
 
     def shutdown(self):
         """ Perform stop actions """
+        join_timeout = self._get_shutdown_wait_timeout()
+        #
+        for emitting_thread in self.emitting_threads:
+            if emitting_thread.is_alive():
+                emitting_thread.join(timeout=join_timeout)
+        #
+        if self.join_threads_on_stop:
+            if self.listening_thread.is_alive():
+                self.listening_thread.join(timeout=join_timeout)
+            #
+            for callback_thread in self.callback_threads:
+                if callback_thread.is_alive():
+                    callback_thread.join(timeout=join_timeout)
+        #
         if self.shutdown_via_destroy:
-            self.zmq_ctx.destroy(self.sockopt_linger)
+            self.zmq_ctx.destroy(self._get_shutdown_linger())
         else:
             self.zmq_ctx.term()
         #
-        if self.join_threads_on_stop:
-            self.listening_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
-            #
-            for emitting_thread in self.emitting_threads:
-                emitting_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
-            #
-            for callback_thread in self.callback_threads:
-                callback_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
+        if self.pending_emit_count > 0:
+            log.warning(
+                "ZeroMQ event node stopped with %s pending messages unsent",
+                self.pending_emit_count,
+            )
+
+    def _get_shutdown_linger(self):
+        if self.sockopt_linger is None:
+            return None
+        #
+        if self.shutdown_send_timeout is None:
+            return self.sockopt_linger
+        #
+        return max(self.sockopt_linger, int(self.shutdown_send_timeout * 1000))
+
+    def _get_shutdown_wait_timeout(self):
+        shutdown_linger = self._get_shutdown_linger()
+        linger_timeout = 0.0
+        #
+        if shutdown_linger is not None:
+            linger_timeout = (shutdown_linger * 1.5) / 1000.0
+        #
+        if self.shutdown_send_timeout is None:
+            return max(self.shutdown_join_timeout, linger_timeout)
+        #
+        return max(self.shutdown_join_timeout, self.shutdown_send_timeout, linger_timeout)
+
+    def _add_pending_emit(self):
+        with self.pending_emit_lock:
+            self.pending_emit_count += 1
+
+    def _finish_pending_emit(self):
+        with self.pending_emit_lock:
+            if self.pending_emit_count > 0:
+                self.pending_emit_count -= 1
+
+    def _has_pending_emits(self):
+        with self.pending_emit_lock:
+            return self.pending_emit_count > 0
+
+    def emit(self, event_name, payload=None):
+        """ Emit event with payload data """
+        if not self.can_emit:
+            return
+        #
+        data = self.make_event_data(event_name, payload)
+        self._add_pending_emit()
+        self.emit_queue.put(data)
 
     def _set_sockopts(self, zmq, zmq_socket):
         if self.sockopt_linger is not None:
@@ -220,19 +283,27 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
             #
             log.warning("Emitting worker is not connected yet, waiting")
         #
-        while self.running:
+        while self.running or self._has_pending_emits():
+            data = None
             try:
-                data = self.emit_queue.get(timeout=self.queue_get_timeout)
+                if self.running:
+                    data = self.emit_queue.get(timeout=self.queue_get_timeout)
+                else:
+                    data = self.emit_queue.get_nowait()
+                #
                 zmq_socket_push.send_multipart([self.zeromq_topic, data])
             except queue.Empty:
                 pass
             except:  # pylint: disable=W0702
                 if self.running and self.log_errors:
                     log.exception("Error during event emitting, skipping")
+            finally:
+                if data is not None:
+                    self._finish_pending_emit()
         #
         log.debug("ZeroMQ emitting thread stopping")
         #
-        zmq_socket_push.close(linger=self.sockopt_linger)
+        zmq_socket_push.close(linger=self._get_shutdown_linger())
         #
         log.debug("ZeroMQ emitting thread exiting")
 
@@ -247,6 +318,8 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         self._set_sockopts(zmq, zmq_socket_sub)
         zmq_socket_sub.connect(self.zeromq_connect_sub)
         zmq_socket_sub.subscribe(self.zeromq_topic)
+        zmq_poller = zmq.Poller()  # pylint: disable=E1101
+        zmq_poller.register(zmq_socket_sub, zmq.POLLIN)
         #
         zmq_socket_monitor = zmq_socket_sub.get_monitor_socket()
         zmq_monitor_thread = ZeroMQMonitorThread(
@@ -264,7 +337,10 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         while self.running:
             try:
-                topic, message = zmq_socket_sub.recv_multipart()  # pylint: disable=W0632
+                if not dict(zmq_poller.poll(timeout=self.socket_poll_timeout)).get(zmq_socket_sub):
+                    continue
+                #
+                topic, message = zmq_socket_sub.recv_multipart(flags=zmq.NOBLOCK)  # pylint: disable=W0632
                 #
                 if topic != self.zeromq_topic:
                     continue
@@ -285,7 +361,7 @@ class ZeroMQEventNode(EventNodeBase):  # pylint: disable=R0902
         #
         log.debug("ZeroMQ listening thread stopping")
         #
-        zmq_socket_sub.close(linger=self.sockopt_linger)
+        zmq_socket_sub.close(linger=self._get_shutdown_linger())
         #
         log.debug("ZeroMQ listening thread exiting")
 

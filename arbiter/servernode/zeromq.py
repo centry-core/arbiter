@@ -21,6 +21,7 @@
 """
 
 import threading
+import time
 
 from arbiter import log
 from ..tools.pylon import is_runtime_gevent
@@ -29,11 +30,16 @@ from ..tools.pylon import is_runtime_gevent
 class ZeroMQServerNode:  # pylint: disable=R0902,R0904
     """ Server node - ZeroMQ """
 
+    socket_poll_timeout = 100
+    shutdown_idle_timeout = 0.5
+
     def __init__(  # pylint: disable=R0913,R0914
             self,
             #
             bind_pub="tcp://*:5010",
             bind_pull="tcp://*:5011",
+            #
+            shutdown_send_timeout=15.0,
             #
             join_threads_on_stop=False,
             shutdown_in_thread=False,
@@ -58,6 +64,7 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
         self.bind_pub = bind_pub
         self.bind_pull = bind_pull
         #
+        self.shutdown_send_timeout = shutdown_send_timeout
         self.join_threads_on_stop = join_threads_on_stop
         self.shutdown_in_thread = shutdown_in_thread
         self.shutdown_join_timeout = shutdown_join_timeout
@@ -121,19 +128,45 @@ class ZeroMQServerNode:  # pylint: disable=R0902,R0904
         if self.shutdown_in_thread:
             shutdown_thread = threading.Thread(target=self.shutdown, daemon=True)
             shutdown_thread.start()
-            shutdown_thread.join(timeout=self.shutdown_join_timeout)
+            shutdown_thread.join(timeout=self._get_shutdown_wait_timeout())
         else:
             self.shutdown()
 
     def shutdown(self):
         """ Perform stop actions """
+        join_timeout = self._get_shutdown_wait_timeout()
+        #
+        if self.zmq_server_thread is not None:
+            self.zmq_server_thread.join(timeout=join_timeout)
+            #
+            if self.zmq_server_thread.is_alive():
+                log.warning("ZeroMQ server thread did not stop within %.2f seconds", join_timeout)
+        #
         if self.shutdown_via_destroy:
-            self.zmq_ctx.destroy(self.sockopt_linger)
+            self.zmq_ctx.destroy(self._get_shutdown_linger())
         else:
             self.zmq_ctx.term()
+
+    def _get_shutdown_linger(self):
+        if self.sockopt_linger is None:
+            return None
         #
-        if self.join_threads_on_stop:
-            self.zmq_server_thread.join(timeout=(self.sockopt_linger * 1.5) / 1000.0)
+        if self.shutdown_send_timeout is None:
+            return self.sockopt_linger
+        #
+        return max(self.sockopt_linger, int(self.shutdown_send_timeout * 1000))
+
+    def _get_shutdown_wait_timeout(self):
+        shutdown_linger = self._get_shutdown_linger()
+        linger_timeout = 0.0
+        #
+        if shutdown_linger is not None:
+            linger_timeout = (shutdown_linger * 1.5) / 1000.0
+        #
+        if self.shutdown_send_timeout is None:
+            return max(self.shutdown_join_timeout, linger_timeout)
+        #
+        return max(self.shutdown_join_timeout, self.shutdown_send_timeout, linger_timeout)
 
 
 class ZeroMQServerThread(threading.Thread):  # pylint: disable=R0903
@@ -185,18 +218,50 @@ class ZeroMQServerThread(threading.Thread):  # pylint: disable=R0903
         zmq_socket_pull = self.node.zmq_ctx.socket(zmq.PULL)  # pylint: disable=E1101
         self._set_sockopts(zmq, zmq_socket_pull)
         zmq_socket_pull.bind(self.node.bind_pull)
+        zmq_poller = zmq.Poller()  # pylint: disable=E1101
+        zmq_poller.register(zmq_socket_pull, zmq.POLLIN)
+        shutdown_deadline = None
+        shutdown_last_activity = None
         #
-        while not self.node.stop_event.is_set():
+        while True:
             try:
-                frame = zmq_socket_pull.recv_multipart()
+                if self.node.stop_event.is_set() and shutdown_deadline is None:
+                    shutdown_last_activity = time.monotonic()
+                    if self.node.shutdown_send_timeout is not None:
+                        shutdown_deadline = (
+                            shutdown_last_activity + self.node.shutdown_send_timeout
+                        )
+                #
+                if shutdown_deadline is not None and time.monotonic() >= shutdown_deadline:
+                    break
+                #
+                poll_timeout = self.node.socket_poll_timeout
+                if shutdown_deadline is not None:
+                    remaining = shutdown_deadline - time.monotonic()
+                    poll_timeout = max(1, min(self.node.socket_poll_timeout, int(remaining * 1000)))
+                #
+                sockets = dict(zmq_poller.poll(timeout=poll_timeout))
+                if zmq_socket_pull not in sockets:
+                    if self.node.stop_event.is_set() and shutdown_last_activity is not None and \
+                            time.monotonic() - shutdown_last_activity >= self.node.shutdown_idle_timeout:
+                        break
+                    #
+                    continue
+                #
+                frame = zmq_socket_pull.recv_multipart(flags=zmq.NOBLOCK)
                 zmq_socket_pub.send_multipart(frame)
+                #
+                if self.node.stop_event.is_set():
+                    shutdown_last_activity = time.monotonic()
             except:  # pylint: disable=W0702
                 if not self.node.stop_event.is_set():
                     log.exception("Exception in ZeroMQ server thread, continuing")
+                else:
+                    break
         #
         log.debug("ZeroMQ server thread stopping")
         #
-        zmq_socket_pull.close(linger=self.node.sockopt_linger)
-        zmq_socket_pub.close(linger=self.node.sockopt_linger)
+        zmq_socket_pull.close(linger=self.node._get_shutdown_linger())
+        zmq_socket_pub.close(linger=self.node._get_shutdown_linger())
         #
         log.debug("ZeroMQ server thread exiting")
